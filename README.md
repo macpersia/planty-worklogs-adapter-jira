@@ -1,1 +1,4 @@
-# planty-jira-view
+Planty Jira View
+==================
+
+To be described!
