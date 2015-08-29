@@ -35,7 +35,7 @@ object Utils {
   val JIRA_QUERY = "project = BICM AND labels = 2015 AND labels IN (\"#6\", \"#7\", \"#8\") AND summary ~ \"Project Management\""
 
   // Functions
- 
+
   def isLoggedBy(username: String, w: Worklog): Boolean = {
     return w.getAuthor.getName.equalsIgnoreCase(username)
   }
