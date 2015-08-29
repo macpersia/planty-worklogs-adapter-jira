@@ -11,29 +11,31 @@ import org.joda.time.DateTime
 import org.joda.time.format.{DateTimeFormatter, ISODateTimeFormat}
 
 object Utils {
+
+  // Constants
+
   val NEWLINE = System.lineSeparator
-  val BASE_URL = "https://jira02.jirahosting.de/jira"
+
+  val JIRA_BASE_URL = "https://jira02.jirahosting.de/jira"
+  val JIRA_BASE_URI = new URI(JIRA_BASE_URL)
+
   val USERNAME = System.getProperty("jira.username")
   val PASSWORD = System.getProperty("jira.password")
+
   val FROM_DATE = new DateTime(2015, 8, 1, 0, 0, 0, 0)
   val TO_DATE = new DateTime(2015, 9, 1, 0, 0, 0, 0)
+
   val DATE_FORMATTER = ISODateTimeFormat.date
+
   val REVERSE_MAP: Map[Worklog, Issue] = new HashMap
+
   val FACTORY = new JerseyJiraRestClientFactory
-  val JIRA_CLIENT = FACTORY.createWithBasicHttpAuthentication(getJiraUri, USERNAME, PASSWORD)
+  val JIRA_CLIENT = FACTORY.createWithBasicHttpAuthentication(JIRA_BASE_URI, USERNAME, PASSWORD)
+
   val JIRA_QUERY = "project = BICM AND labels = 2015 AND labels IN (\"#6\", \"#7\", \"#8\") AND summary ~ \"Project Management\""
 
-  private def getJiraUri: URI = {
-    //    try {
-    return new URI(BASE_URL)
-    //    }
-    //    catch {
-    //      case e: URISyntaxException => {
-    //        throw new RuntimeException(e)
-    //      }
-    //    }
-  }
-
+  // Functions
+ 
   def isLoggedBy(username: String, w: Worklog): Boolean = {
     return w.getAuthor.getName.equalsIgnoreCase(username)
   }
