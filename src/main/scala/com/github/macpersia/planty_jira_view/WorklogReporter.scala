@@ -30,7 +30,7 @@ case class ConnectionConfig(
 
 case class WorklogFilter(
                           jiraQuery: String,
-                          author: String,
+                          author: Option[String],
                           fromDate: LocalDate,
                           toDate: LocalDate)
 
@@ -86,7 +86,11 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
 
       val myWorklogs: util.List[Worklog] = synchronizedList(new util.LinkedList)
       for (worklog <- retrieveWorklogs(issue, connConfig.username, connConfig.password)) {
-        if (isLoggedBy(connConfig.username, worklog)
+        val author = filter.author match {
+          case None => connConfig.username
+          case Some(username) => if (!username.trim.isEmpty) username else connConfig.username
+        }
+        if (isLoggedBy(author, worklog)
           && isWithinPeriod(filter.fromDate, filter.toDate, worklog)) {
 
           myWorklogs.add(worklog)
