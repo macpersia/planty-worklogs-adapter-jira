@@ -1,6 +1,6 @@
 package com.github.macpersia.planty_jira_view
 
-import java.io.PrintStream
+import java.io.{File, PrintStream}
 import java.net.URI
 import java.util
 import java.util.Collections._
@@ -9,6 +9,7 @@ import java.util._
 import com.atlassian.jira.rest.client.domain.{Issue, Worklog}
 import com.atlassian.jira.rest.client.internal.jersey.JerseyJiraRestClientFactory
 import com.atlassian.jira.rest.client.internal.json.WorklogJsonParser
+import com.github.macpersia.planty_jira_view.WorklogReporter._
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.commons.httpclient.auth.AuthScope
 import org.apache.commons.httpclient.methods.GetMethod
@@ -21,16 +22,28 @@ import scala.collection.JavaConversions._
 import scala.collection.parallel.immutable.ParSeq
 import scala.io.Source
 
-import ReportGenerator._
 
+case class ConnectionConfig(
+                             baseUri: URI,
+                             username: String,
+                             password: String)
 
-case class WorklogEntry(date: LocalDate, description: String, duration: Double)
+case class WorklogFilter(
+                          jiraQuery: String,
+                          author: String,
+                          fromDate: LocalDate,
+                          toDate: LocalDate)
 
-object ReportGenerator {
+case class WorklogEntry(
+                         date: LocalDate,
+                         description: String,
+                         duration: Double)
+
+object WorklogReporter {
   val DATE_FORMATTER = ISODateTimeFormat.date
 }
 
-class ReportGenerator(config: Config) extends LazyLogging {
+class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {
 
   case class WorklogComparator(worklogsMap: Map[Worklog, Issue]) extends Comparator[Worklog] {
     def compare(w1: Worklog, w2: Worklog) = {
@@ -42,39 +55,39 @@ class ReportGenerator(config: Config) extends LazyLogging {
     }
   }
 
-  def printAsCsv(entries: Seq[WorklogEntry]) {
+  def printWorklogsAsCsv(outputFile: File) {
     val csvPrintStream =
-      if (config.outputFile != null) new PrintStream(config.outputFile)
+      if (outputFile != null) new PrintStream(outputFile)
       else Console.out
     try
-      for (entry <- entries) printAsCsv(entry, csvPrintStream, DATE_FORMATTER)
+      for (entry <- retrieveWorklogs()) printWorklogAsCsv(entry, csvPrintStream, DATE_FORMATTER)
     finally
-      if (csvPrintStream != null && config.outputFile == null) csvPrintStream.close()
+      if (csvPrintStream != null && outputFile == null) csvPrintStream.close()
   }
 
-  private def printAsCsv(entry: WorklogEntry, csvPs: PrintStream, formatter: DateTimeFormatter) {
+  private def printWorklogAsCsv(entry: WorklogEntry, csvPs: PrintStream, formatter: DateTimeFormatter) {
     val date = formatter print entry.date
     csvPs.println(s"${date}, ${entry.description}, ${entry.duration}")
   }
 
-  def generateEntries(): Seq[WorklogEntry] = {
+  def retrieveWorklogs(): Seq[WorklogEntry] = {
 
-    logger.debug(s"Connecting to ${config.baseUrl} as ${config.username}")
+    logger.debug(s"Connecting to ${connConfig.baseUri} as ${connConfig.username}")
 
     val worklogsMap: Map[Worklog, Issue] = synchronizedMap(new HashMap)
 
     val factory = new JerseyJiraRestClientFactory
     val restClient = factory.createWithBasicHttpAuthentication(
-      new URI(config.baseUrl), config.username, config.password)
+      connConfig.baseUri, connConfig.username, connConfig.password)
 
-    val searchResult = restClient.getSearchClient.searchJql(config.jiraQuery, null)
+    val searchResult = restClient.getSearchClient.searchJql(filter.jiraQuery, null)
     for (basicIssue <- searchResult.getIssues.par) {
       val issue = restClient.getIssueClient.getIssue(basicIssue.getKey, null)
 
       val myWorklogs: util.List[Worklog] = synchronizedList(new util.LinkedList)
-      for (worklog <- retrieveWorklogs(issue, config.username, config.password)) {
-        if (isLoggedBy(config.username, worklog)
-          && isWithinPeriod(config.fromDate, config.toDate, worklog)) {
+      for (worklog <- retrieveWorklogs(issue, connConfig.username, connConfig.password)) {
+        if (isLoggedBy(connConfig.username, worklog)
+          && isWithinPeriod(filter.fromDate, filter.toDate, worklog)) {
 
           myWorklogs.add(worklog)
           worklogsMap.put(worklog, issue)
