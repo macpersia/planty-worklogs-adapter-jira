@@ -104,7 +104,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
       val sortedWorklogsMap: SortedMap[Worklog, Issue] = new TreeMap(new WorklogComparator(worklogsMap))
       sortedWorklogsMap.putAll(worklogsMap)
       val worklogEntries =
-        for (worklog <- sortedWorklogsMap.keySet)
+        for (worklog <- sortedWorklogsMap.keySet.iterator)
           yield toWorklogEntry(sortedWorklogsMap, worklog)
 
       return worklogEntries.toSeq
