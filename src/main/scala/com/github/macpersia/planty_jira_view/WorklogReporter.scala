@@ -162,7 +162,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
 
   def isWithinPeriod(fromDate: LocalDate, toDate: LocalDate, timeZone: TimeZone, worklog: Worklog): Boolean = {
     val startDate = worklog.getStartDate.toDateTime(dateTZ).toLocalDate
-    startDate.isAfter(fromDate) && startDate.isBefore(toDate)
+    startDate.isEqual(fromDate) || startDate.isAfter(fromDate) && startDate.isBefore(toDate)
   }
 
   def toWorklogEntry(sortedReverseMap: SortedMap[Worklog, Issue], worklog: Worklog) = {
