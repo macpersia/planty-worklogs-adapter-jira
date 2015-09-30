@@ -2,6 +2,7 @@ package com.github.macpersia.planty_jira_view
 
 import java.io.{File, FileNotFoundException}
 import java.net._
+import java.util.TimeZone
 
 import com.github.macpersia.planty_jira_view.WorklogReporter._
 import com.typesafe.scalalogging.LazyLogging
@@ -18,6 +19,7 @@ case class AppParams(baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"
                   author: Option[String] = None,
                   fromDate: LocalDate = (new DateTime minusWeeks 1 toLocalDate),
                   toDate: LocalDate = (new DateTime plusDays 1 toLocalDate),
+                  timeZone: TimeZone = TimeZone.getDefault,
                   outputFile: Option[File] = None)
 
 object App extends LazyLogging {
@@ -39,6 +41,7 @@ object App extends LazyLogging {
       opt[String]('t', "toDate") action { (x, c) => c.copy(toDate =
         DATE_FORMATTER parseDateTime x toLocalDate)
       }
+      opt[String]('z', "timeZone") action { (x, c) => c.copy(timeZone = TimeZone.getTimeZone(x))}
       opt[String]('o', "outputFile") action { (x, c) => c.copy(outputFile = Some(new File(x))) }
     }
     parser.parse(args, AppParams()) match {
@@ -49,7 +52,9 @@ object App extends LazyLogging {
               params.username,
               if (params.password != null) params.password else promptForPassword
         )
-        val filter: WorklogFilter = WorklogFilter(params.jiraQuery, params.author, params.fromDate, params.toDate)
+        val filter: WorklogFilter = WorklogFilter(
+          params.jiraQuery, params.author, params.fromDate, params.toDate, params.timeZone)
+
         val reporter: WorklogReporter = new WorklogReporter(connConfig, filter)
         reporter.printWorklogsAsCsv(params.outputFile.orNull)
       }

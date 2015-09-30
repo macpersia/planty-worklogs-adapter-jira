@@ -15,8 +15,8 @@ import org.apache.commons.httpclient.auth.AuthScope
 import org.apache.commons.httpclient.methods.GetMethod
 import org.apache.commons.httpclient.{HttpClient, UsernamePasswordCredentials}
 import org.codehaus.jettison.json.{JSONArray, JSONObject}
-import org.joda.time.LocalDate
 import org.joda.time.format.{DateTimeFormatter, ISODateTimeFormat}
+import org.joda.time.{DateTimeZone, LocalDate}
 
 import scala.collection.JavaConversions._
 import scala.collection.parallel.immutable.ParSeq
@@ -32,7 +32,8 @@ case class WorklogFilter(
                           jiraQuery: String,
                           author: Option[String],
                           fromDate: LocalDate,
-                          toDate: LocalDate)
+                          toDate: LocalDate,
+                          timeZone: TimeZone)
 
 case class WorklogEntry(
                          date: LocalDate,
@@ -44,6 +45,8 @@ object WorklogReporter {
 }
 
 class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {
+
+  val dateTZ = DateTimeZone.forTimeZone(filter.timeZone)
 
   case class WorklogComparator(worklogsMap: Map[Worklog, Issue]) extends Comparator[Worklog] {
     def compare(w1: Worklog, w2: Worklog) = {
@@ -91,7 +94,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
           case Some(username) => if (!username.trim.isEmpty) username else connConfig.username
         }
         if (isLoggedBy(author, worklog)
-          && isWithinPeriod(filter.fromDate, filter.toDate, worklog)) {
+          && isWithinPeriod(filter.fromDate, filter.toDate, filter.timeZone, worklog)) {
 
           myWorklogs.add(worklog)
           worklogsMap.put(worklog, issue)
@@ -157,8 +160,8 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
     theWorklog.getAuthor.getName.equalsIgnoreCase(username)
   }
 
-  def isWithinPeriod(fromDate: LocalDate, toDate: LocalDate, worklog: Worklog): Boolean = {
-    val startDate = worklog.getStartDate.toLocalDate
+  def isWithinPeriod(fromDate: LocalDate, toDate: LocalDate, timeZone: TimeZone, worklog: Worklog): Boolean = {
+    val startDate = worklog.getStartDate.toDateTime(dateTZ).toLocalDate
     startDate.isAfter(fromDate) && startDate.isBefore(toDate)
   }
 
@@ -166,7 +169,10 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
     val issueKey = sortedReverseMap.get(worklog).getKey
     val minutesPerLog = worklog.getMinutesSpent
     val hoursPerLog = (minutesPerLog.toDouble) / 60
-    new WorklogEntry(date = worklog.getStartDate.toLocalDate, description = issueKey, duration = hoursPerLog)
+    new WorklogEntry(
+      date = worklog.getStartDate.toDateTime(dateTZ).toLocalDate,
+      description = issueKey,
+      duration = hoursPerLog)
   }
 
   def toFuzzyDuration(totalMinutes: Int): String = {
