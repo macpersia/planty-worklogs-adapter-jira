@@ -166,7 +166,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
     val issueKey = sortedReverseMap.get(worklog).getKey
     val minutesPerLog = worklog.getMinutesSpent
     val hoursPerLog = (minutesPerLog.toDouble) / 60
-    new WorklogEntry(date = worklog.getStartDate.toLocalDate, description = issueKey, duration = hoursPerLog)
+    new WorklogEntry(worklog.getStartDate.toLocalDate, issueKey, hoursPerLog)
   }
 
   def toFuzzyDuration(totalMinutes: Int): String = {
