@@ -9,11 +9,9 @@ import java.util._
 import com.atlassian.jira.rest.client.domain.{Issue, Worklog}
 import com.atlassian.jira.rest.client.internal.jersey.JerseyJiraRestClientFactory
 import com.atlassian.jira.rest.client.internal.json.WorklogJsonParser
-import com.github.macpersia.planty_jira_view.WorklogReporter._
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.commons.httpclient.auth.AuthScope
 import org.apache.commons.httpclient.methods.GetMethod
-import org.apache.commons.httpclient.params.HttpClientParams
 import org.apache.commons.httpclient.protocol.Protocol
 import org.apache.commons.httpclient.{HttpClient, UsernamePasswordCredentials}
 import org.codehaus.jettison.json.{JSONArray, JSONObject}
@@ -50,7 +48,7 @@ object WorklogReporter extends LazyLogging {
   Protocol.registerProtocol("https", new Protocol("https", new OSProtocolSocketFactory, 80))
 }
 
-class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) {
+class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {
 
   val dateTZ = DateTimeZone.forTimeZone(filter.timeZone)
 
@@ -69,7 +67,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) {
       if (outputFile != null) new PrintStream(outputFile)
       else Console.out
     try
-      for (entry <- retrieveWorklogs()) printWorklogAsCsv(entry, csvPrintStream, DATE_FORMATTER)
+      for (entry <- retrieveWorklogs()) printWorklogAsCsv(entry, csvPrintStream, WorklogReporter.DATE_FORMATTER)
     finally
       if (csvPrintStream != null && outputFile == null) csvPrintStream.close()
   }
