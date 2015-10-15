@@ -13,6 +13,8 @@ import com.github.macpersia.planty_jira_view.WorklogReporter._
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.commons.httpclient.auth.AuthScope
 import org.apache.commons.httpclient.methods.GetMethod
+import org.apache.commons.httpclient.params.HttpClientParams
+import org.apache.commons.httpclient.protocol.Protocol
 import org.apache.commons.httpclient.{HttpClient, UsernamePasswordCredentials}
 import org.codehaus.jettison.json.{JSONArray, JSONObject}
 import org.joda.time.format.{DateTimeFormatter, ISODateTimeFormat}
@@ -40,11 +42,15 @@ case class WorklogEntry(
                          description: String,
                          duration: Double)
 
-object WorklogReporter {
+object WorklogReporter extends LazyLogging {
   val DATE_FORMATTER = ISODateTimeFormat.date
+
+  logger.debug("Initializing httpclient protcol with overridden SocketFactory")
+  Protocol.registerProtocol("http", new Protocol("http", new OSProtocolSocketFactory, 80))
+  Protocol.registerProtocol("https", new Protocol("https", new OSProtocolSocketFactory, 80))
 }
 
-class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {
+class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) {
 
   val dateTZ = DateTimeZone.forTimeZone(filter.timeZone)
 
