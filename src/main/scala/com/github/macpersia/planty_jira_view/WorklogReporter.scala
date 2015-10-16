@@ -44,9 +44,25 @@ case class WorklogEntry(
 object WorklogReporter extends LazyLogging {
   val DATE_FORMATTER = ISODateTimeFormat.date
 
-  logger.debug("Initializing httpclient protcol with overridden SocketFactory")
-  Protocol.registerProtocol(HTTP.name(), new Protocol(HTTP.name(), new WorkaroundSocketFactory(HTTP), 80))
-  Protocol.registerProtocol(HTTPS.name(), new Protocol(HTTPS.name, new WorkaroundSocketFactory(HTTPS), 443))
+  logger.debug("Initializing httpclient protocol with overridden SocketFactory")
+
+  val localHostOverride = sys.props.get("local.host.override")
+  val localPortOverride = sys.props.get("local.port.override").map(_.toInt)
+
+  Protocol.registerProtocol(HTTP.code, new Protocol(
+      HTTP.code,
+      new WorkaroundSocketFactory(HTTP, localHostOverride.asJava, localPortOverride.asJava),
+      80))
+  Protocol.registerProtocol(HTTPS.code, new Protocol(
+      HTTPS.code,
+      new WorkaroundSocketFactory(HTTPS, localHostOverride.asJava, localPortOverride.asJava),
+      443))
+
+  implicit class OptionToOptional[A](val o: Option[A]) extends AnyVal {
+    import java.util.Optional
+
+    def asJava[B](implicit conv: A => B): Optional[B] = o map (value => Optional.of(conv(value))) getOrElse Optional.empty()
+  }
 }
 
 class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {
