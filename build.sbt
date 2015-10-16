@@ -26,6 +26,4 @@ resolvers ++= Seq(
 enablePlugins(JavaAppPackaging)
 
 
-
-
 fork in run := true

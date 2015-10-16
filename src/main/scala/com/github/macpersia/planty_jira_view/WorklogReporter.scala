@@ -22,6 +22,7 @@ import scala.collection.JavaConversions._
 import scala.collection.parallel.immutable.ParSeq
 import scala.io.Source
 
+import WorkaroundSocketFactory.Protocol._
 
 case class ConnectionConfig(
                              baseUri: URI,
@@ -44,8 +45,8 @@ object WorklogReporter extends LazyLogging {
   val DATE_FORMATTER = ISODateTimeFormat.date
 
   logger.debug("Initializing httpclient protcol with overridden SocketFactory")
-  Protocol.registerProtocol("http", new Protocol("http", new OSProtocolSocketFactory, 80))
-  Protocol.registerProtocol("https", new Protocol("https", new OSProtocolSocketFactory, 80))
+  Protocol.registerProtocol(HTTP.name(), new Protocol(HTTP.name(), new WorkaroundSocketFactory(HTTP), 80))
+  Protocol.registerProtocol(HTTPS.name(), new Protocol(HTTPS.name, new WorkaroundSocketFactory(HTTPS), 443))
 }
 
 class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {
