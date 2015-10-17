@@ -29,16 +29,16 @@ public class WorkaroundSocketFactory implements ProtocolSocketFactory {
     }
 
     final Protocol protocol;
-    final Optional<String> localHostOverride;
+    final Optional<String> localAddressOverride;
     final Optional<Integer> localPortOverride;
 
     private static final Log LOG = LogFactory.getLog(WorkaroundSocketFactory.class);
 
     public WorkaroundSocketFactory(Protocol protocol,
-                                   Optional<String> localHostOverride,
+                                   Optional<String> localAddressOverride,
                                    Optional<Integer> localPortOverride) {
         this.protocol = protocol;
-        this.localHostOverride = localHostOverride;
+        this.localAddressOverride = localAddressOverride;
         this.localPortOverride = localPortOverride;
     }
 
@@ -49,9 +49,9 @@ public class WorkaroundSocketFactory implements ProtocolSocketFactory {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("createSocket called. host = " + host + ", port = " + port
-                    + (localHostOverride.isPresent() ? ""
+                    + (localAddressOverride.isPresent() ? ""
                         : ", overriding localAddress = " + ((localAddress != null) ? localAddress.toString() : "null")
-                            + " as " + localHostOverride)
+                            + " as " + localAddressOverride)
                     + (localPortOverride.isPresent() ? ""
                         : ", overriding localPort = " + localPort
                             + " as " + localPortOverride));
@@ -62,11 +62,13 @@ public class WorkaroundSocketFactory implements ProtocolSocketFactory {
                     SSLSocketFactory.getDefault()
                     : SocketFactory.getDefault();
 //            return factory.createSocket(
-//                    host, port,
-//                    InetAddress.getByName(localHostOverride.orElse("localhost")),
-//                    localPortOverride.orElse(0));
+//                    host, port);
             return factory.createSocket(
-                    host, port);
+                    host, port,
+                    localAddressOverride.isPresent() ?
+                            InetAddress.getByName(localAddressOverride.get())
+                            : localAddress,
+                    localPortOverride.orElse(localPort));
 
         } catch (IOException e) {
             LOG.error("Error creating socket: " + e.getMessage());
@@ -92,8 +94,8 @@ public class WorkaroundSocketFactory implements ProtocolSocketFactory {
 
     @Override
     public boolean equals(Object obj) {
-        return !(obj instanceof WorkaroundSocketFactory) ? false
-                : ((WorkaroundSocketFactory) obj).protocol == protocol;
+        return obj instanceof WorkaroundSocketFactory
+                && ((WorkaroundSocketFactory) obj).protocol == protocol;
     }
 
     @Override

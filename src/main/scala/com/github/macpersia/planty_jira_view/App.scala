@@ -17,8 +17,8 @@ case class AppParams(baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"
                   // fromDate: DateTime = dateFormatter parseDateTime "2015-08-16" ,
                   // toDate: DateTime = dateFormatter parseDateTime "2015-09-22",
                   author: Option[String] = None,
-                  fromDate: LocalDate = (new DateTime minusWeeks 1 toLocalDate),
-                  toDate: LocalDate = (new DateTime plusDays 1 toLocalDate),
+                  fromDate: LocalDate = (new DateTime minusWeeks 1).toLocalDate,
+                  toDate: LocalDate = (new DateTime plusDays 1).toLocalDate,
                   timeZone: TimeZone = TimeZone.getDefault,
                   outputFile: Option[File] = None)
 

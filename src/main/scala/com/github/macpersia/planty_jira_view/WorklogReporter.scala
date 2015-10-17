@@ -46,16 +46,16 @@ object WorklogReporter extends LazyLogging {
 
   logger.debug("Initializing httpclient protocol with overridden SocketFactory")
 
-  val localHostOverride = sys.props.get("local.host.override")
+  val localAddressOverride = sys.props.get("local.address.override")
   val localPortOverride = sys.props.get("local.port.override").map(_.toInt)
 
   Protocol.registerProtocol(HTTP.code, new Protocol(
       HTTP.code,
-      new WorkaroundSocketFactory(HTTP, localHostOverride.asJava, localPortOverride.asJava),
+      new WorkaroundSocketFactory(HTTP, localAddressOverride.asJava, localPortOverride.asJava),
       80))
   Protocol.registerProtocol(HTTPS.code, new Protocol(
       HTTPS.code,
-      new WorkaroundSocketFactory(HTTPS, localHostOverride.asJava, localPortOverride.asJava),
+      new WorkaroundSocketFactory(HTTPS, localAddressOverride.asJava, localPortOverride.asJava),
       443))
 
   implicit class OptionToOptional[A](val o: Option[A]) extends AnyVal {
@@ -69,7 +69,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
 
   val dateTZ = DateTimeZone.forTimeZone(filter.timeZone)
 
-  case class WorklogComparator(worklogsMap: Map[Worklog, Issue]) extends Comparator[Worklog] {
+  case class WorklogComparator(worklogsMap: util.Map[Worklog, Issue]) extends Comparator[Worklog] {
     def compare(w1: Worklog, w2: Worklog) = {
       val millis1 = w1.getStartDate.toDateMidnight.getMillis
       val millis2 = w2.getStartDate.toDateMidnight.getMillis
@@ -91,14 +91,14 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
 
   private def printWorklogAsCsv(entry: WorklogEntry, csvPs: PrintStream, formatter: DateTimeFormatter) {
     val date = formatter print entry.date
-    csvPs.println(s"${date}, ${entry.description}, ${entry.duration}")
+    csvPs.println(s"$date, ${entry.description}, ${entry.duration}")
   }
 
   def retrieveWorklogs(): Seq[WorklogEntry] = {
 
     logger.debug(s"Connecting to ${connConfig.baseUri} as ${connConfig.username}")
 
-    val worklogsMap: Map[Worklog, Issue] = synchronizedMap(new HashMap)
+    val worklogsMap: util.Map[Worklog, Issue] = synchronizedMap(new util.HashMap)
 
     val factory = new JerseyJiraRestClientFactory
     val restClient = factory.createWithBasicHttpAuthentication(
@@ -125,7 +125,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
     if (worklogsMap.isEmpty)
       return Seq.empty
     else {
-      val sortedWorklogsMap: SortedMap[Worklog, Issue] = new TreeMap(new WorklogComparator(worklogsMap))
+      val sortedWorklogsMap: util.SortedMap[Worklog, Issue] = new util.TreeMap(new WorklogComparator(worklogsMap))
       sortedWorklogsMap.putAll(worklogsMap)
       val worklogEntries =
         for (worklog <- sortedWorklogsMap.keySet.iterator)
@@ -186,10 +186,10 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
     startDate.isEqual(fromDate) || startDate.isAfter(fromDate) && startDate.isBefore(toDate)
   }
 
-  def toWorklogEntry(sortedReverseMap: SortedMap[Worklog, Issue], worklog: Worklog) = {
+  def toWorklogEntry(sortedReverseMap: util.SortedMap[Worklog, Issue], worklog: Worklog) = {
     val issueKey = sortedReverseMap.get(worklog).getKey
     val minutesPerLog = worklog.getMinutesSpent
-    val hoursPerLog = (minutesPerLog.toDouble) / 60
+    val hoursPerLog = minutesPerLog.toDouble / 60
     new WorklogEntry(
       date = worklog.getStartDate.toDateTime(dateTZ).toLocalDate,
       description = issueKey,
