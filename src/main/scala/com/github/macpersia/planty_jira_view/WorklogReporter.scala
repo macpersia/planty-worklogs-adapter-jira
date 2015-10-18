@@ -49,20 +49,8 @@ object WorklogReporter extends LazyLogging {
   val localAddressOverride = sys.props.get("local.address.override")
   val localPortOverride = sys.props.get("local.port.override").map(_.toInt)
 
-  Protocol.registerProtocol(HTTP.code, new Protocol(
-      HTTP.code,
-      new WorkaroundSocketFactory(HTTP, localAddressOverride.asJava, localPortOverride.asJava),
-      80))
-  Protocol.registerProtocol(HTTPS.code, new Protocol(
-      HTTPS.code,
-      new WorkaroundSocketFactory(HTTPS, localAddressOverride.asJava, localPortOverride.asJava),
-      443))
-
-  implicit class OptionToOptional[A](val o: Option[A]) extends AnyVal {
-    import java.util.Optional
-
-    def asJava[B](implicit conv: A => B): Optional[B] = o map (value => Optional.of(conv(value))) getOrElse Optional.empty()
-  }
+  Protocol.registerProtocol(HTTP.code, new Protocol(HTTP.code, new WorkaroundSocketFactory(HTTP), 80))
+  Protocol.registerProtocol(HTTPS.code, new Protocol(HTTPS.code, new WorkaroundSocketFactory(HTTPS), 443))
 }
 
 class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {

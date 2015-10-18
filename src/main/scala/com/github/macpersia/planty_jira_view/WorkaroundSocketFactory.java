@@ -29,17 +29,11 @@ public class WorkaroundSocketFactory implements ProtocolSocketFactory {
     }
 
     final Protocol protocol;
-    final Optional<String> localAddressOverride;
-    final Optional<Integer> localPortOverride;
 
     private static final Log LOG = LogFactory.getLog(WorkaroundSocketFactory.class);
 
-    public WorkaroundSocketFactory(Protocol protocol,
-                                   Optional<String> localAddressOverride,
-                                   Optional<Integer> localPortOverride) {
+    public WorkaroundSocketFactory(Protocol protocol) {
         this.protocol = protocol;
-        this.localAddressOverride = localAddressOverride;
-        this.localPortOverride = localPortOverride;
     }
 
     @Override
@@ -49,26 +43,16 @@ public class WorkaroundSocketFactory implements ProtocolSocketFactory {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("createSocket called. host = " + host + ", port = " + port
-                    + (localAddressOverride.isPresent() ? ""
-                        : ", overriding localAddress = " + ((localAddress != null) ? localAddress.toString() : "null")
-                            + " as " + localAddressOverride)
-                    + (localPortOverride.isPresent() ? ""
-                        : ", overriding localPort = " + localPort
-                            + " as " + localPortOverride));
+                    + ", ignoring localAddress " + String.valueOf(localAddress)
+                    + ", ignoring localPort = " + localPort);
         }
         try {
             LOG.debug("Socket created");
             SocketFactory factory = (protocol == Protocol.HTTPS) ?
                     SSLSocketFactory.getDefault()
                     : SocketFactory.getDefault();
-//            return factory.createSocket(
-//                    host, port);
             return factory.createSocket(
-                    host, port,
-                    localAddressOverride.isPresent() ?
-                            InetAddress.getByName(localAddressOverride.get())
-                            : localAddress,
-                    localPortOverride.orElse(localPort));
+                    host, port);
 
         } catch (IOException e) {
             LOG.error("Error creating socket: " + e.getMessage());
