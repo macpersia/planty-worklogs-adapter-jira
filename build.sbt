@@ -10,8 +10,8 @@ libraryDependencies ++= Seq(
   //   "net.sf.jopt-simple" % "jopt-simple" % "4.9",
   //   "org.apache.karaf.shell" % "org.apache.karaf.shell.console" % "2.4.3",
   "com.github.scopt" %% "scopt" % "3.3.0",
-  "com.atlassian.jira" % "jira-rest-java-client" % "1.0"
-  // "com.atlassian.jira" %% "jira-rest-java-client" % "1.0"
+  "com.typesafe.play" %% "play-ws" % "2.4.2",
+  "com.jsuereth" %% "scala-arm" % "1.4"
 )
 
 // resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"

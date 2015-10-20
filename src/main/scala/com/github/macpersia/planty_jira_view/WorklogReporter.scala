@@ -2,27 +2,26 @@ package com.github.macpersia.planty_jira_view
 
 import java.io.{File, PrintStream}
 import java.net.URI
+import java.time.format.DateTimeFormatter
+import java.time.{LocalDate, ZonedDateTime}
 import java.util
 import java.util.Collections._
 import java.util._
+import java.util.concurrent.TimeUnit.MINUTES
 
-import com.atlassian.jira.rest.client.domain.{Issue, Worklog}
-import com.atlassian.jira.rest.client.internal.jersey.JerseyJiraRestClientFactory
-import com.atlassian.jira.rest.client.internal.json.WorklogJsonParser
+import com.github.macpersia.planty_jira_view.model._
 import com.typesafe.scalalogging.LazyLogging
-import org.apache.commons.httpclient.auth.AuthScope
-import org.apache.commons.httpclient.methods.GetMethod
-import org.apache.commons.httpclient.protocol.Protocol
-import org.apache.commons.httpclient.{HttpClient, UsernamePasswordCredentials}
-import org.codehaus.jettison.json.{JSONArray, JSONObject}
-import org.joda.time.format.{DateTimeFormatter, ISODateTimeFormat}
-import org.joda.time.{DateTimeZone, LocalDate}
+import play.api.libs.json._
+import play.api.libs.ws.WS
+import play.api.libs.ws.WSAuthScheme.BASIC
+import play.api.libs.ws.ning.NingWSClient
+import resource.managed
 
 import scala.collection.JavaConversions._
+import scala.collection.immutable
 import scala.collection.parallel.immutable.ParSeq
-import scala.io.Source
-
-import WorkaroundSocketFactory.Protocol._
+import scala.concurrent.Await
+import scala.concurrent.duration.Duration
 
 case class ConnectionConfig(
                              baseUri: URI,
@@ -42,78 +41,127 @@ case class WorklogEntry(
                          duration: Double)
 
 object WorklogReporter extends LazyLogging {
-  val DATE_FORMATTER = ISODateTimeFormat.date
+  val DATE_FORMATTER = DateTimeFormatter.ISO_DATE
 
-  logger.debug("Initializing httpclient protocol with overridden SocketFactory")
+  private val jiraDTFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZZ")
 
-  val localAddressOverride = sys.props.get("local.address.override")
-  val localPortOverride = sys.props.get("local.port.override").map(_.toInt)
+  implicit val readsLocalDate = Reads[LocalDate] ( js =>
+    js.validate[String].map[LocalDate]      (dtString => LocalDate.parse(dtString, jiraDTFormatter))
+  )
+  implicit val readsZonedDateTime = Reads[ZonedDateTime] ( js =>
+    js.validate[String].map[ZonedDateTime]  (dtString => ZonedDateTime.parse(dtString, jiraDTFormatter))
+  )
+  implicit val basicIssueReads = Json.reads[BasicIssue]
+  implicit val searchResultReads = Json.reads[SearchResult]
+  implicit val issueTypeReads = Json.reads[IssueType]
+  implicit val statusReads = Json.reads[Status]
+  implicit val userReads = Json.reads[User]
+  implicit val priorityReads = Json.reads[Priority]
+  implicit val issueFieldsReads = Json.reads[IssueFields]
+  implicit val fullIssueReads = Json.reads[FullIssue]
 
-  Protocol.registerProtocol(HTTP.code, new Protocol(HTTP.code, new WorkaroundSocketFactory(HTTP), 80))
-  Protocol.registerProtocol(HTTPS.code, new Protocol(HTTPS.code, new WorkaroundSocketFactory(HTTPS), 443))
+  implicit val worklogReads = Json.reads[Worklog]
+  implicit val issueWorklogsReads = Json.reads[IssueWorklogs]
+
+  implicit val basicIssueWrites = Json.writes[BasicIssue]
+  implicit val searchResultWrites = Json.writes[SearchResult]
+  implicit val issueTypeWrites = Json.writes[IssueType]
+  implicit val statusWrites = Json.writes[Status]
+  implicit val userWrites = Json.writes[User]
+  implicit val priorityWrites = Json.writes[Priority]
+  implicit val issueFieldsWrites = Json.writes[IssueFields]
+  implicit val fullIssueWrites = Json.writes[FullIssue]
+  implicit val worklogWrites = Json.writes[Worklog]
+  implicit val issueWorklogsWrites = Json.writes[IssueWorklogs]
 }
 
-class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) extends LazyLogging {
+import com.github.macpersia.planty_jira_view.WorklogReporter._
 
-  val dateTZ = DateTimeZone.forTimeZone(filter.timeZone)
+class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
+  extends LazyLogging with AutoCloseable {
 
-  case class WorklogComparator(worklogsMap: util.Map[Worklog, Issue]) extends Comparator[Worklog] {
+  // val dateTZ = DateTimeZone.forTimeZone(filter.timeZone)
+  val zoneId = filter.timeZone.toZoneId
+
+  implicit val sslClient = NingWSClient()
+
+  override def close(): Unit = {
+    if (sslClient != null) sslClient.close()
+  }
+
+  case class WorklogComparator(worklogsMap: util.Map[Worklog, BasicIssue]) extends Comparator[Worklog] {
     def compare(w1: Worklog, w2: Worklog) = {
-      val millis1 = w1.getStartDate.toDateMidnight.getMillis
-      val millis2 = w2.getStartDate.toDateMidnight.getMillis
-      val issueKey1 = worklogsMap.get(w1).getKey
-      val issueKey2 = worklogsMap.get(w2).getKey
-      Ordering[(Long, String)].compare((millis1, issueKey1), (millis2, issueKey2))
+      Ordering[(Long, String)].compare(
+        (w1.started.toEpochDay, worklogsMap.get(w1).key),
+        (w2.started.toEpochDay, worklogsMap.get(w2).key)
+      )
     }
   }
 
-  def printWorklogsAsCsv(outputFile: File) {
-    val csvPrintStream =
-      if (outputFile != null) new PrintStream(outputFile)
-      else Console.out
-    try
-      for (entry <- retrieveWorklogs()) printWorklogAsCsv(entry, csvPrintStream, WorklogReporter.DATE_FORMATTER)
-    finally
-      if (csvPrintStream != null && outputFile == null) csvPrintStream.close()
+  def printWorklogsAsCsv(outputFile: Option[File]) {
+    for (csvPrintStream <- managed(
+         if (outputFile.isDefined) new PrintStream(outputFile.get)
+         else Console.out )) {
+      for (entry <- retrieveWorklogs())
+        printWorklogAsCsv(entry, csvPrintStream, WorklogReporter.DATE_FORMATTER)
+    }
   }
 
   private def printWorklogAsCsv(entry: WorklogEntry, csvPs: PrintStream, formatter: DateTimeFormatter) {
-    val date = formatter print entry.date
+    val date = formatter format entry.date
     csvPs.println(s"$date, ${entry.description}, ${entry.duration}")
   }
 
   def retrieveWorklogs(): Seq[WorklogEntry] = {
 
-    logger.debug(s"Connecting to ${connConfig.baseUri} as ${connConfig.username}")
+    logger.debug(s"Searching the JIRA at ${connConfig.baseUri} as ${connConfig.username}")
 
-    val worklogsMap: util.Map[Worklog, Issue] = synchronizedMap(new util.HashMap)
+    val reqTimeout = Duration(1, MINUTES)
+    val worklogsMap: util.Map[Worklog, model.BasicIssue] = synchronizedMap(new util.HashMap)
 
-    val factory = new JerseyJiraRestClientFactory
-    val restClient = factory.createWithBasicHttpAuthentication(
-      connConfig.baseUri, connConfig.username, connConfig.password)
+    val searchUrl = connConfig.baseUri.toString + "/rest/api/2/search"
+    val searchReq = WS.clientUrl(searchUrl)
+                    .withAuth(connConfig.username, connConfig.password, BASIC)
+                    .withHeaders("Content-Type" -> "application/json")
+                    .withQueryString(
+                      ("jql", filter.jiraQuery),
+                      ("fields", "id,key")
+                    )
+    val respFuture = searchReq.get()
+    val resp = Await.result(respFuture, reqTimeout)
+    val searchResult = resp.json.validate[SearchResult].get
 
-    val searchResult = restClient.getSearchClient.searchJql(filter.jiraQuery, null)
-    for (basicIssue <- searchResult.getIssues.par) {
-      val issue = restClient.getIssueClient.getIssue(basicIssue.getKey, null)
+    for (basicIssue <- searchResult.issues) {
+      val issueUrl = connConfig.baseUri.toString + s"/rest/api/2/issue/${basicIssue.key}"
+      logger.debug(s"Retrieving issue ${basicIssue.key} at $issueUrl")
 
-      val myWorklogs: util.List[Worklog] = synchronizedList(new util.LinkedList)
-      for (worklog <- retrieveWorklogs(issue, connConfig.username, connConfig.password)) {
+      val issueReq = WS.clientUrl(issueUrl)
+        .withAuth(connConfig.username, connConfig.password, BASIC)
+        .withHeaders("Content-Type" -> "application/json")
+      val respFuture = issueReq.get()
+      val resp = Await.result(respFuture, reqTimeout)
+
+      val issueResult = resp.json.validate[FullIssue].get
+
+      val myWorklogs: util.List[model.Worklog] = synchronizedList(new util.LinkedList)
+      for (worklog <- retrieveWorklogs(basicIssue.key, connConfig.username, connConfig.password)) {
         val author = filter.author match {
           case None => connConfig.username
           case Some(username) => if (!username.trim.isEmpty) username else connConfig.username
         }
         if (isLoggedBy(author, worklog)
-          && isWithinPeriod(filter.fromDate, filter.toDate, filter.timeZone, worklog)) {
+          && isWithinPeriod(filter.fromDate, filter.toDate, worklog)) {
 
           myWorklogs.add(worklog)
-          worklogsMap.put(worklog, issue)
+          worklogsMap.put(worklog, basicIssue)
         }
       }
     }
+
     if (worklogsMap.isEmpty)
       return Seq.empty
     else {
-      val sortedWorklogsMap: util.SortedMap[Worklog, Issue] = new util.TreeMap(new WorklogComparator(worklogsMap))
+      val sortedWorklogsMap: util.SortedMap[Worklog, BasicIssue] = new util.TreeMap(new WorklogComparator(worklogsMap))
       sortedWorklogsMap.putAll(worklogsMap)
       val worklogEntries =
         for (worklog <- sortedWorklogsMap.keySet.iterator)
@@ -123,63 +171,35 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter) exten
     }
   }
 
-  private def retrieveWorklogs(issue: Issue, username: String, password: String): ParSeq[Worklog] = {
+  private def retrieveWorklogs(issueKey: String, username: String, password: String): ParSeq[Worklog] = {
 
-    var getMethod: GetMethod = null
-    try {
-      val httpClient = new HttpClient
-      getMethod = createGetMethod(httpClient, issue.getWorklogUri, username, password)
-      httpClient.executeMethod(getMethod)
-      val worklogsJson = new JSONObject(
-        Source.fromInputStream(getMethod.getResponseBodyAsStream)("UTF-8").mkString)
+    val worklogsUrl = s"${connConfig.baseUri}/rest/api/2/issue/$issueKey/worklog"
+    val reqTimeout = Duration(1, MINUTES)
+    val worklogsReq = WS.clientUrl(worklogsUrl)
+                    .withAuth(connConfig.username, connConfig.password, BASIC)
+                    .withHeaders("Content-Type" -> "application/json")
+    val respFuture = worklogsReq.get()
+    val resp = Await.result(respFuture, reqTimeout)
 
-      val worklogsArray = worklogsJson.getJSONArray("worklogs")
-      val worklogParser = new WorklogJsonParser
-      val worklogs =
-        for (i <- (0 to worklogsArray.length() - 1).par)
-          yield worklogParser.parse(fixWorklogJsonObject(issue, worklogsArray, i))
-
-      return worklogs
-
-    } finally {
-      if (getMethod != null) getMethod.releaseConnection()
-    }
+    val issueWorklogsResult = resp.json.validate[IssueWorklogs].get
+    return (issueWorklogsResult.worklogs getOrElse immutable.Seq.empty).par
   }
 
-  private def fixWorklogJsonObject(issue: Issue, worklogsArray: JSONArray, i: Int): JSONObject = {
-
-    val worklogJson = worklogsArray.getJSONObject(i)
-    worklogJson.put("issue", issue.getKey)
-    worklogJson.put("minutesSpent", worklogJson.getInt("timeSpentSeconds") / 60)
-    return worklogJson
+  def isLoggedBy(username: String, worklog: Worklog): Boolean = {
+    worklog.author.name.equalsIgnoreCase(username)
   }
 
-  private def createGetMethod(httpClient: HttpClient, uri: URI, username: String, password: String): GetMethod = {
-
-    val defaultCreds = new UsernamePasswordCredentials(username, password)
-    httpClient.getParams.setAuthenticationPreemptive(true)
-    httpClient.getState.setCredentials(
-      new AuthScope(uri.getHost, 443, AuthScope.ANY_REALM), defaultCreds)
-    val getMethod = new GetMethod(uri.toString)
-    getMethod.setDoAuthentication(true)
-    return getMethod
-  }
-
-  def isLoggedBy(username: String, theWorklog: Worklog): Boolean = {
-    theWorklog.getAuthor.getName.equalsIgnoreCase(username)
-  }
-
-  def isWithinPeriod(fromDate: LocalDate, toDate: LocalDate, timeZone: TimeZone, worklog: Worklog): Boolean = {
-    val startDate = worklog.getStartDate.toDateTime(dateTZ).toLocalDate
+  def isWithinPeriod(fromDate: LocalDate, toDate: LocalDate, worklog: Worklog): Boolean = {
+    val startDate = worklog.started.atStartOfDay(zoneId).toLocalDate
     startDate.isEqual(fromDate) || startDate.isAfter(fromDate) && startDate.isBefore(toDate)
   }
 
-  def toWorklogEntry(sortedReverseMap: util.SortedMap[Worklog, Issue], worklog: Worklog) = {
-    val issueKey = sortedReverseMap.get(worklog).getKey
-    val minutesPerLog = worklog.getMinutesSpent
-    val hoursPerLog = minutesPerLog.toDouble / 60
+  def toWorklogEntry(sortedReverseMap: util.SortedMap[Worklog, BasicIssue], worklog: Worklog) = {
+    val issueKey = sortedReverseMap.get(worklog).key
+    val secondsSpent = worklog.timeSpentSeconds.toDouble
+    val hoursPerLog = secondsSpent / 60 / 60
     new WorklogEntry(
-      date = worklog.getStartDate.toDateTime(dateTZ).toLocalDate,
+      date = worklog.started.atStartOfDay(zoneId).toLocalDate,
       description = issueKey,
       duration = hoursPerLog)
   }

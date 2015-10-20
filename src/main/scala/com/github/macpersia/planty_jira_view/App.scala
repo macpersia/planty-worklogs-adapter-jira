@@ -2,23 +2,25 @@ package com.github.macpersia.planty_jira_view
 
 import java.io.{File, FileNotFoundException}
 import java.net._
+import java.time.LocalDate
 import java.util.TimeZone
 
 import com.github.macpersia.planty_jira_view.WorklogReporter._
 import com.typesafe.scalalogging.LazyLogging
-import org.joda.time.{DateTime, LocalDate}
+import resource.managed
 import scopt.OptionParser
+
 
 case class AppParams(baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"),
                   username: String = null,
                   password: String = null,
                   jiraQuery: String =
-                  "project = BICM AND labels = 2015 AND labels IN ('#7', '#8') AND summary ~ 'Project Management'",
+                  "project = BICM AND labels = 2015 AND labels IN ('#8', '#9') AND summary ~ 'Project Management'",
                   // fromDate: DateTime = dateFormatter parseDateTime "2015-08-16" ,
                   // toDate: DateTime = dateFormatter parseDateTime "2015-09-22",
                   author: Option[String] = None,
-                  fromDate: LocalDate = (new DateTime minusWeeks 1).toLocalDate,
-                  toDate: LocalDate = (new DateTime plusDays 1).toLocalDate,
+                  fromDate: LocalDate = LocalDate.now minusWeeks 1,
+                  toDate: LocalDate = LocalDate.now plusDays 1,
                   timeZone: TimeZone = TimeZone.getDefault,
                   outputFile: Option[File] = None)
 
@@ -36,10 +38,10 @@ object App extends LazyLogging {
       opt[String]('q', "query") action { (x, c) => c.copy(jiraQuery = x) }
       opt[String]('a', "author") action { (x, c) => c.copy(author = Some(x)) }
       opt[String]('f', "fromDate") action { (x, c) => c.copy(fromDate =
-        DATE_FORMATTER parseDateTime x toLocalDate)
+        LocalDate.parse(x, DATE_FORMATTER))
       }
       opt[String]('t', "toDate") action { (x, c) => c.copy(toDate =
-        DATE_FORMATTER parseDateTime x toLocalDate)
+        LocalDate.parse(x, DATE_FORMATTER))
       }
       opt[String]('z', "timeZone") action { (x, c) => c.copy(timeZone = TimeZone.getTimeZone(x))}
       opt[String]('o', "outputFile") action { (x, c) => c.copy(outputFile = Some(new File(x))) }
@@ -55,8 +57,9 @@ object App extends LazyLogging {
         val filter: WorklogFilter = WorklogFilter(
           params.jiraQuery, params.author, params.fromDate, params.toDate, params.timeZone)
 
-        val reporter: WorklogReporter = new WorklogReporter(connConfig, filter)
-        reporter.printWorklogsAsCsv(params.outputFile.orNull)
+        for (reporter <- managed(new WorklogReporter(connConfig, filter))) {
+          reporter.printWorklogsAsCsv(params.outputFile)
+        }
       }
     }
   }
