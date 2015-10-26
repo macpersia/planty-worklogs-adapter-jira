@@ -10,6 +10,7 @@ import com.typesafe.scalalogging.LazyLogging
 import resource.managed
 import scopt.OptionParser
 
+import scala.concurrent.ExecutionContext.Implicits.global
 
 case class AppParams(baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"),
                   username: String = null,
@@ -57,8 +58,9 @@ object App extends LazyLogging {
         val filter: WorklogFilter = WorklogFilter(
           params.jiraQuery, params.author, params.fromDate, params.toDate, params.timeZone)
 
-        for (reporter <- managed(new WorklogReporter(connConfig, filter))) {
+        for (reporter <- managed(new WorklogReporter(connConfig, filter)(global))) {
           reporter.printWorklogsAsCsv(params.outputFile)
+          sys.exit(0)
         }
       }
     }

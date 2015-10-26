@@ -3,15 +3,13 @@ package com.github.macpersia.planty_jira_view
 import java.io.{File, PrintStream}
 import java.net.URI
 import java.time.format.DateTimeFormatter
-import java.time.{LocalDate, ZonedDateTime}
+import java.time.{LocalDate, ZoneId}
 import java.util
 import java.util.Collections._
 import java.util._
 import java.util.concurrent.TimeUnit.MINUTES
 
-import com.github.macpersia.planty_jira_view.model._
 import com.typesafe.scalalogging.LazyLogging
-import play.api.libs.json._
 import play.api.libs.ws.WS
 import play.api.libs.ws.WSAuthScheme.BASIC
 import play.api.libs.ws.ning.NingWSClient
@@ -20,8 +18,8 @@ import resource.managed
 import scala.collection.JavaConversions._
 import scala.collection.immutable
 import scala.collection.parallel.immutable.ParSeq
-import scala.concurrent.Await
 import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext}
 
 case class ConnectionConfig(
                              baseUri: URI,
@@ -42,46 +40,16 @@ case class WorklogEntry(
 
 object WorklogReporter extends LazyLogging {
   val DATE_FORMATTER = DateTimeFormatter.ISO_DATE
-
-  private val jiraDTFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZZ")
-
-  implicit val readsLocalDate = Reads[LocalDate] ( js =>
-    js.validate[String].map[LocalDate]      (dtString => LocalDate.parse(dtString, jiraDTFormatter))
-  )
-  implicit val readsZonedDateTime = Reads[ZonedDateTime] ( js =>
-    js.validate[String].map[ZonedDateTime]  (dtString => ZonedDateTime.parse(dtString, jiraDTFormatter))
-  )
-  implicit val basicIssueReads = Json.reads[BasicIssue]
-  implicit val searchResultReads = Json.reads[SearchResult]
-  implicit val issueTypeReads = Json.reads[IssueType]
-  implicit val statusReads = Json.reads[Status]
-  implicit val userReads = Json.reads[User]
-  implicit val priorityReads = Json.reads[Priority]
-  implicit val issueFieldsReads = Json.reads[IssueFields]
-  implicit val fullIssueReads = Json.reads[FullIssue]
-
-  implicit val worklogReads = Json.reads[Worklog]
-  implicit val issueWorklogsReads = Json.reads[IssueWorklogs]
-
-  implicit val basicIssueWrites = Json.writes[BasicIssue]
-  implicit val searchResultWrites = Json.writes[SearchResult]
-  implicit val issueTypeWrites = Json.writes[IssueType]
-  implicit val statusWrites = Json.writes[Status]
-  implicit val userWrites = Json.writes[User]
-  implicit val priorityWrites = Json.writes[Priority]
-  implicit val issueFieldsWrites = Json.writes[IssueFields]
-  implicit val fullIssueWrites = Json.writes[FullIssue]
-  implicit val worklogWrites = Json.writes[Worklog]
-  implicit val issueWorklogsWrites = Json.writes[IssueWorklogs]
 }
 
-import com.github.macpersia.planty_jira_view.WorklogReporter._
+import com.github.macpersia.planty_jira_view.model._
 
 class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
+                     (implicit execContext: ExecutionContext)
   extends LazyLogging with AutoCloseable {
 
-  // val dateTZ = DateTimeZone.forTimeZone(filter.timeZone)
   val zoneId = filter.timeZone.toZoneId
+  val cacheManager = new CacheManager()
 
   implicit val sslClient = NingWSClient()
 
@@ -114,10 +82,27 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
 
   def retrieveWorklogs(): Seq[WorklogEntry] = {
 
+    val latestIssueTs = cacheManager.latestIssueTimestamp()
+    logger.debug(s"################# latestIssueTs: $latestIssueTs")
+
+//    cacheManager.updateIssues(searchResult.issues)
+//    cacheManager.listIssues().onComplete {
+//      issue => println(s">>> Testing: $issue")
+//    }
+
     logger.debug(s"Searching the JIRA at ${connConfig.baseUri} as ${connConfig.username}")
 
     val reqTimeout = Duration(1, MINUTES)
     val worklogsMap: util.Map[Worklog, model.BasicIssue] = synchronizedMap(new util.HashMap)
+
+    val userUrl = connConfig.baseUri.toString + s"/rest/api/2/user?username=${connConfig.username}"
+    val userReq = WS.clientUrl(userUrl)
+                    .withAuth(connConfig.username, connConfig.password, BASIC)
+                    .withHeaders("Content-Type" -> "application/json")
+    val userFuture = userReq.get()
+    val userResp = Await.result(userFuture, reqTimeout)
+    val userResult = userResp.json.validate[User].get
+    print("###################### TIME ZONE: " + ZoneId.of(userResult.timeZone.get))
 
     val searchUrl = connConfig.baseUri.toString + "/rest/api/2/search"
     val searchReq = WS.clientUrl(searchUrl)
@@ -125,23 +110,22 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
                     .withHeaders("Content-Type" -> "application/json")
                     .withQueryString(
                       ("jql", filter.jiraQuery),
-                      ("fields", "id,key")
+                      ("fields", "updated,created")
                     )
-    val respFuture = searchReq.get()
-    val resp = Await.result(respFuture, reqTimeout)
-    val searchResult = resp.json.validate[SearchResult].get
+    val searchFuture = searchReq.get()
+    val searchResp = Await.result(searchFuture, reqTimeout)
+    val searchResult = searchResp.json.validate[SearchResult].get
 
     for (basicIssue <- searchResult.issues) {
       val issueUrl = connConfig.baseUri.toString + s"/rest/api/2/issue/${basicIssue.key}"
       logger.debug(s"Retrieving issue ${basicIssue.key} at $issueUrl")
 
-      val issueReq = WS.clientUrl(issueUrl)
-        .withAuth(connConfig.username, connConfig.password, BASIC)
-        .withHeaders("Content-Type" -> "application/json")
-      val respFuture = issueReq.get()
-      val resp = Await.result(respFuture, reqTimeout)
-
-      val issueResult = resp.json.validate[FullIssue].get
+      //val issueReq = WS.clientUrl(issueUrl)
+      //  .withAuth(connConfig.username, connConfig.password, BASIC)
+      //  .withHeaders("Content-Type" -> "application/json")
+      // val searchFuture = issueReq.get()
+      // val searchResp = Await.result(searchFuture, reqTimeout)
+      // val issueResult = searchResp.json.validate[FullIssue].get
 
       val myWorklogs: util.List[model.Worklog] = synchronizedList(new util.LinkedList)
       for (worklog <- retrieveWorklogs(basicIssue.key, connConfig.username, connConfig.password)) {

@@ -10,8 +10,10 @@ libraryDependencies ++= Seq(
   //   "net.sf.jopt-simple" % "jopt-simple" % "4.9",
   //   "org.apache.karaf.shell" % "org.apache.karaf.shell.console" % "2.4.3",
   "com.github.scopt" %% "scopt" % "3.3.0",
+  "com.jsuereth" %% "scala-arm" % "1.4",
   "com.typesafe.play" %% "play-ws" % "2.4.2",
-  "com.jsuereth" %% "scala-arm" % "1.4"
+  // "org.reactivemongo" %% "reactivemongo" % "0.11.7"
+  "org.reactivemongo" %% "play2-reactivemongo" % "0.11.7.play24"
 )
 
 // resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"
