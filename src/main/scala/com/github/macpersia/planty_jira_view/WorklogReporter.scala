@@ -3,7 +3,8 @@ package com.github.macpersia.planty_jira_view
 import java.io.{File, PrintStream}
 import java.net.URI
 import java.time.format.DateTimeFormatter
-import java.time.{LocalDate, ZoneId}
+import java.time.format.DateTimeFormatter.ofPattern
+import java.time.{Instant, LocalDate, ZoneId}
 import java.util
 import java.util.Collections._
 import java.util._
@@ -18,7 +19,7 @@ import resource.managed
 import scala.collection.JavaConversions._
 import scala.collection.immutable
 import scala.collection.parallel.immutable.ParSeq
-import scala.concurrent.duration.Duration
+import scala.concurrent.duration.{Duration, SECONDS}
 import scala.concurrent.{Await, ExecutionContext}
 
 case class ConnectionConfig(
@@ -82,13 +83,10 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
 
   def retrieveWorklogs(): Seq[WorklogEntry] = {
 
-    val latestIssueTs = cacheManager.latestIssueTimestamp()
-    logger.debug(s"################# latestIssueTs: $latestIssueTs")
-
-//    cacheManager.updateIssues(searchResult.issues)
-//    cacheManager.listIssues().onComplete {
-//      issue => println(s">>> Testing: $issue")
-//    }
+    val latestIssueTs = Await.result(
+      cacheManager.latestIssueTimestamp(),
+      Duration(10, SECONDS))
+    logger.debug(s"Previous timestamp for updates: ${latestIssueTs}")
 
     logger.debug(s"Searching the JIRA at ${connConfig.baseUri} as ${connConfig.username}")
 
@@ -102,15 +100,36 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val userFuture = userReq.get()
     val userResp = Await.result(userFuture, reqTimeout)
     val userResult = userResp.json.validate[User].get
-    print("###################### TIME ZONE: " + ZoneId.of(userResult.timeZone.get))
+    logger.debug("Current user's time zone: " + ZoneId.of(userResult.timeZone.get))
+
+    //    cacheManager.listIssues().onComplete {
+    //      issue => println(s">>> Testing: $issue")
+    //    }
 
     val searchUrl = connConfig.baseUri.toString + "/rest/api/2/search"
+
+    val formattedTs = (latestIssueTs match {
+      case Some(t) => t.toInstant
+      case None => Instant.EPOCH
+    }).atZone(zoneId).format(ofPattern("yyyy-MM-dd HH:mm"))
+
+//    val updatesReq = WS.clientUrl(searchUrl)
+//                    .withAuth(connConfig.username, connConfig.password, BASIC)
+//                    .withHeaders("Content-Type" -> "application/json")
+//                    .withQueryString(
+//                      "jql" -> s"updated>${formattedTs}",
+//                      "fields" -> "updated,created"
+//                    )
+//    val updatesFuture = updatesReq.get()
+//    val updatesResp = Await.result(updatesFuture, reqTimeout)
+//    val updatesResult = updatesResp.json.validate[SearchResult].get
+
     val searchReq = WS.clientUrl(searchUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
                     .withQueryString(
-                      ("jql", filter.jiraQuery),
-                      ("fields", "updated,created")
+                      "jql" -> filter.jiraQuery,
+                      "fields" -> "updated,created"
                     )
     val searchFuture = searchReq.get()
     val searchResp = Await.result(searchFuture, reqTimeout)
@@ -141,6 +160,8 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
         }
       }
     }
+    cacheManager.updateIssues(searchResult.issues)
+//    cacheManager.updateIssues(updatesResult.issues)
 
     if (worklogsMap.isEmpty)
       return Seq.empty

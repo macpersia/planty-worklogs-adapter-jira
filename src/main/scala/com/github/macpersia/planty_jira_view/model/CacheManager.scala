@@ -1,6 +1,6 @@
 package com.github.macpersia.planty_jira_view.model
 
-import java.time.{ZonedDateTime, Instant, ZoneId}
+import java.time.{Instant, ZoneId, ZonedDateTime}
 
 import reactivemongo.api.MongoDriver
 import reactivemongo.api.collections.bson.BSONCollection
@@ -14,6 +14,8 @@ class CacheManager(implicit execContext: ExecutionContext) {
   private val connection = driver.connection(List("localhost"))
   private val db = connection("diy")(execContext)
   private val issuesColl: BSONCollection = db("jira.issues")
+
+  val zoneId = ZoneId.systemDefault()
 
   implicit object InstantHandler extends BSONHandler[BSONDateTime, Instant] {
     def read(bson: BSONDateTime): Instant = Instant.ofEpochMilli(bson.value)
@@ -30,7 +32,6 @@ class CacheManager(implicit execContext: ExecutionContext) {
   }
 
   implicit object BasicIssueReader extends BSONDocumentReader[BasicIssue] {
-    val zoneId = ZoneId.systemDefault()
     def read(doc: BSONDocument): BasicIssue = BasicIssue(
       doc.getAs[String]("id").get,
       doc.getAs[String]("key").get,
@@ -48,7 +49,16 @@ class CacheManager(implicit execContext: ExecutionContext) {
     issuesColl.find(BSONDocument()).cursor[BasicIssue]().collect[Seq]()
   }
 
-  def latestIssueTimestamp(): Future[ZonedDateTime] = {
-    issuesColl.find(BSONDocument("$max" -> "updated")).one(readsZonedDateTime, execContext).map(x => x.get)
+  def latestIssueTimestamp(): Future[Option[ZonedDateTime]] = {
+    import issuesColl.BatchCommands.AggregationFramework._
+    // issuesColl.aggregate(Group(BSONString("$state"))(
+    val fieldAlias = "latestTimestamp"
+    val futureRes = issuesColl.aggregate(Group(BSONNull)(
+      fieldAlias -> Max("updated")
+    ))
+    futureRes.map(_.documents).map(_ match {
+      case x :: xs => x.getAs[Instant](fieldAlias).map(_.atZone(zoneId))
+      case Nil => None
+    })
   }
 }
