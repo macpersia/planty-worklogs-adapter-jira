@@ -4,7 +4,7 @@ import java.io.{File, PrintStream}
 import java.net.URI
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatter.ofPattern
-import java.time.{Instant, LocalDate, ZoneId}
+import java.time.{LocalDate, ZoneId}
 import java.util
 import java.util.Collections._
 import java.util._
@@ -99,33 +99,18 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val userResult = userResp.json.validate[User].get
     logger.debug("Current user's time zone: " + ZoneId.of(userResult.timeZone.get))
 
-    //    cacheManager.listIssues().onComplete {
-    //      issue => println(s">>> Testing: $issue")
-    //    }
+    val dateTimeFormatter: DateTimeFormatter = ofPattern("yyyy-MM-dd HH:mm")
+    val fromDateFormatted: String = dateTimeFormatter.format(filter.fromDate)
+    val toDateFormatted: String = dateTimeFormatter.format(filter.toDate)
 
     val searchUrl = connConfig.baseUri.toString + "/rest/api/2/search"
-
-    val formattedTs = (latestIssueTs match {
-      case Some(t) => t.toInstant
-      case None => Instant.EPOCH
-    }).atZone(zoneId).format(ofPattern("yyyy-MM-dd HH:mm"))
-
-//    val updatesReq = WS.clientUrl(searchUrl)
-//                    .withAuth(connConfig.username, connConfig.password, BASIC)
-//                    .withHeaders("Content-Type" -> "application/json")
-//                    .withQueryString(
-//                      "jql" -> s"updated>${formattedTs}",
-//                      "fields" -> "updated,created"
-//                    )
-//    val updatesFuture = updatesReq.get()
-//    val updatesResp = Await.result(updatesFuture, reqTimeout)
-//    val updatesResult = updatesResp.json.validate[SearchResult].get
-
+    val jql: String = Seq(filter.jiraQuery, s"updated>=${fromDateFormatted} AND created<${toDateFormatted}")
+      .mkString(" AND ")
     val searchReq = WS.clientUrl(searchUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
                     .withQueryString(
-                      "jql" -> filter.jiraQuery,
+                      "jql" -> jql,
                       "maxResult" -> "1000",
                       "fields" -> "updated,created"
                     )
