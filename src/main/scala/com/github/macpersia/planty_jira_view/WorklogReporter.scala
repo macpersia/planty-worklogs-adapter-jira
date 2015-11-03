@@ -11,6 +11,7 @@ import java.util._
 import java.util.concurrent.TimeUnit.MINUTES
 
 import com.typesafe.scalalogging.LazyLogging
+import play.api.libs.json.{JsError, JsSuccess}
 import play.api.libs.ws.WS
 import play.api.libs.ws.WSAuthScheme.BASIC
 import play.api.libs.ws.ning.NingWSClient
@@ -22,20 +23,17 @@ import scala.collection.parallel.immutable.ParSeq
 import scala.concurrent.duration.{Duration, SECONDS}
 import scala.concurrent.{Await, ExecutionContext}
 
-case class ConnectionConfig(
-                             baseUri: URI,
+case class ConnectionConfig( baseUri: URI,
                              username: String,
                              password: String)
 
-case class WorklogFilter(
-                          jiraQuery: String,
+case class WorklogFilter( jiraQuery: String,
                           author: Option[String],
                           fromDate: LocalDate,
                           toDate: LocalDate,
                           timeZone: TimeZone)
 
-case class WorklogEntry(
-                         date: LocalDate,
+case class WorklogEntry( date: LocalDate,
                          description: String,
                          duration: Double)
 
@@ -91,7 +89,6 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     logger.debug(s"Searching the JIRA at ${connConfig.baseUri} as ${connConfig.username}")
 
     val reqTimeout = Duration(1, MINUTES)
-    val worklogsMap: util.Map[Worklog, model.BasicIssue] = synchronizedMap(new util.HashMap)
 
     val userUrl = connConfig.baseUri.toString + s"/rest/api/2/user?username=${connConfig.username}"
     val userReq = WS.clientUrl(userUrl)
@@ -129,40 +126,25 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
                     .withHeaders("Content-Type" -> "application/json")
                     .withQueryString(
                       "jql" -> filter.jiraQuery,
+                      "maxResult" -> "1000",
                       "fields" -> "updated,created"
                     )
     val searchFuture = searchReq.get()
     val searchResp = Await.result(searchFuture, reqTimeout)
-    val searchResult = searchResp.json.validate[SearchResult].get
-
-    for (basicIssue <- searchResult.issues) {
-      val issueUrl = connConfig.baseUri.toString + s"/rest/api/2/issue/${basicIssue.key}"
-      logger.debug(s"Retrieving issue ${basicIssue.key} at $issueUrl")
-
-      //val issueReq = WS.clientUrl(issueUrl)
-      //  .withAuth(connConfig.username, connConfig.password, BASIC)
-      //  .withHeaders("Content-Type" -> "application/json")
-      // val searchFuture = issueReq.get()
-      // val searchResp = Await.result(searchFuture, reqTimeout)
-      // val issueResult = searchResp.json.validate[FullIssue].get
-
-      val myWorklogs: util.List[model.Worklog] = synchronizedList(new util.LinkedList)
-      for (worklog <- retrieveWorklogs(basicIssue.key, connConfig.username, connConfig.password)) {
-        val author = filter.author match {
-          case None => connConfig.username
-          case Some(username) => if (!username.trim.isEmpty) username else connConfig.username
-        }
-        if (isLoggedBy(author, worklog)
-          && isWithinPeriod(filter.fromDate, filter.toDate, worklog)) {
-
-          myWorklogs.add(worklog)
-          worklogsMap.put(worklog, basicIssue)
-        }
+    searchResp.json.validate[SearchResult] match {
+      case JsSuccess(searchResult, path) => {
+        val worklogsMap: util.Map[Worklog, BasicIssue] = exxtractWorklogs(searchResult)
+        return toWorklogEntries(worklogsMap)
+      }
+      case JsError(errors) => {
+        for (e <- errors) logger.error(e.toString())
+        logger.debug("The body of search response: \n" + searchResp.body)
+        throw new RuntimeException("Search Failed!")
       }
     }
-    cacheManager.updateIssues(searchResult.issues)
-//    cacheManager.updateIssues(updatesResult.issues)
+  }
 
+  def toWorklogEntries(worklogsMap: util.Map[Worklog, BasicIssue]): Seq[WorklogEntry] = {
     if (worklogsMap.isEmpty)
       return Seq.empty
     else {
@@ -176,18 +158,69 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     }
   }
 
-  private def retrieveWorklogs(issueKey: String, username: String, password: String): ParSeq[Worklog] = {
+  def exxtractWorklogs(searchResult: SearchResult) : util.Map[Worklog, BasicIssue] = {
 
-    val worklogsUrl = s"${connConfig.baseUri}/rest/api/2/issue/$issueKey/worklog"
+    val worklogsMap: util.Map[Worklog, BasicIssue] = synchronizedMap(new util.HashMap)
+    val myWorklogs: util.List[Worklog] = synchronizedList(new util.LinkedList)
+
+    for (issue <- searchResult.issues) {
+      val prevSyncTs = Await.result(cacheManager.latestIssueTimestamp(), Duration(30, SECONDS))
+      val cachedIssue = Await.result(cacheManager.getIssueById(issue.id), Duration(30, SECONDS))
+      val allWorklogs =
+        if (prevSyncTs.isEmpty || cachedIssue.isEmpty || (issue.updated isAfter cachedIssue.get.updated)) {
+          //val issueUrl = connConfig.baseUri.toString + s"/rest/api/2/issue/${issue.key}"
+          //logger.debug(s"Retrieving issue ${issue.key} at $issueUrl")
+          //
+          //val issueReq = WS.clientUrl(issueUrl)
+          //  .withAuth(connConfig.username, connConfig.password, BASIC)
+          //  .withHeaders("Content-Type" -> "application/json")
+          // val searchFuture = issueReq.get()
+          // val searchResp = Await.result(searchFuture, reqTimeout)
+          // val issueResult = searchResp.json.validate[FullIssue].get
+          retrieveWorklogsFromRestAPI(issue, connConfig.username, connConfig.password)
+        } else
+          Await.result(cacheManager.listWorklogs(issue.key), Duration(30, SECONDS))
+
+      for (worklog <- allWorklogs) {
+        val author = filter.author match {
+          case None => connConfig.username
+          case Some(username) => if (!username.trim.isEmpty) username else connConfig.username
+        }
+        if (isLoggedBy(author, worklog)
+          && isWithinPeriod(filter.fromDate, filter.toDate, worklog)) {
+
+          myWorklogs.add(worklog)
+          worklogsMap.put(worklog, issue)
+        }
+      }
+    }
+    return worklogsMap
+  }
+
+  private def retrieveWorklogsFromRestAPI(issue: BasicIssue, username: String, password: String): ParSeq[Worklog] = {
+
+    val worklogsUrl = s"${connConfig.baseUri}/rest/api/2/issue/${issue.key}/worklog"
     val reqTimeout = Duration(1, MINUTES)
     val worklogsReq = WS.clientUrl(worklogsUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
+                    .withQueryString("maxResult" -> "1000")
     val respFuture = worklogsReq.get()
     val resp = Await.result(respFuture, reqTimeout)
 
-    val issueWorklogsResult = resp.json.validate[IssueWorklogs].get
-    return (issueWorklogsResult.worklogs getOrElse immutable.Seq.empty).par
+    resp.json.validate[IssueWorklogs] match {
+      case JsSuccess(issueWorklogs, path) => {
+        val issueWorklogsCopy = issueWorklogs.copy(issueKey = Some(issue.key))
+        cacheManager.updateIssueWorklogs(issueWorklogsCopy)
+        cacheManager.updateIssue(issue)
+        return (issueWorklogsCopy.worklogs getOrElse immutable.Seq.empty).par
+      }
+      case JsError(errors) => {
+        for (e <- errors) logger.error(e.toString())
+        logger.debug("The body of search response: \n" + resp.body)
+        throw new RuntimeException("Retrieving Worklogs Failed!")
+      }
+    }
   }
 
   def isLoggedBy(username: String, worklog: Worklog): Boolean = {

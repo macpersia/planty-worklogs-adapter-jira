@@ -12,18 +12,21 @@ import scopt.OptionParser
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
-case class AppParams(baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"),
-                  username: String = null,
-                  password: String = null,
-                  jiraQuery: String =
-                  "project = BICM AND labels = 2015 AND labels IN ('#8', '#9') AND summary ~ 'Project Management'",
-                  // fromDate: DateTime = dateFormatter parseDateTime "2015-08-16" ,
-                  // toDate: DateTime = dateFormatter parseDateTime "2015-09-22",
-                  author: Option[String] = None,
-                  fromDate: LocalDate = LocalDate.now minusWeeks 1,
-                  toDate: LocalDate = LocalDate.now plusDays 1,
-                  timeZone: TimeZone = TimeZone.getDefault,
-                  outputFile: Option[File] = None)
+case class AppParams(
+                      baseUrl: URI = new URI("https://jira.atlassian.com"),
+                      // baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"),
+                      username: String = null,
+                      password: String = null,
+                      jiraQuery: String =
+                      "project = CLOUD",
+                      //"project = BICM AND labels = 2015 AND labels IN ('#8', '#9') AND summary ~ 'Project Management'",
+                      // fromDate: DateTime = dateFormatter parseDateTime "2015-08-16" ,
+                      // toDate: DateTime = dateFormatter parseDateTime "2015-09-22",
+                      author: Option[String] = None,
+                      fromDate: LocalDate = LocalDate.now minusWeeks 1,
+                      toDate: LocalDate = LocalDate.now plusDays 1,
+                      timeZone: TimeZone = TimeZone.getDefault,
+                      outputFile: Option[File] = None )
 
 object App extends LazyLogging {
 

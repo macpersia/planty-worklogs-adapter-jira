@@ -41,14 +41,16 @@ package object model {
   case class Priority( id: String, name: Option[String] )
 
 
-  case class IssueWorklogs( startAt: Int, maxResults: Int, total: Int, worklogs: Option[Seq[Worklog]] )
+  case class IssueWorklogs( issueKey: Option[String],
+                            startAt: Option[Int], maxResults: Option[Int], total: Option[Int],
+                            worklogs: Option[Seq[Worklog]] )
 
   case class Worklog( id: String,
                       started: LocalDate,
                       timeSpentSeconds: Int,
                       author: User,
                       updateAuthor: Option[User],
-                      comment: Option[String] )
+                      comment: Option[String])
 
   val jiraDTFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZZ")
 
