@@ -99,19 +99,19 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val userResult = userResp.json.validate[User].get
     logger.debug("Current user's time zone: " + ZoneId.of(userResult.timeZone.get))
 
-    val dateTimeFormatter: DateTimeFormatter = ofPattern("yyyy-MM-dd HH:mm")
+    val dateTimeFormatter: DateTimeFormatter = ofPattern("yyyy-MM-dd")
     val fromDateFormatted: String = dateTimeFormatter.format(filter.fromDate)
     val toDateFormatted: String = dateTimeFormatter.format(filter.toDate)
 
     val searchUrl = connConfig.baseUri.toString + "/rest/api/2/search"
-    val jql: String = Seq(filter.jiraQuery, s"updated>=${fromDateFormatted} AND created<${toDateFormatted}")
+    val jql: String = Seq(filter.jiraQuery, s"updated>=${fromDateFormatted} AND created<=${toDateFormatted}")
       .mkString(" AND ")
     val searchReq = WS.clientUrl(searchUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
                     .withQueryString(
                       "jql" -> jql,
-                      "maxResult" -> "1000",
+                      "maxResults" -> "1000",
                       "fields" -> "updated,created"
                     )
     val searchFuture = searchReq.get()
@@ -148,7 +148,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val worklogsMap: util.Map[Worklog, BasicIssue] = synchronizedMap(new util.HashMap)
     val myWorklogs: util.List[Worklog] = synchronizedList(new util.LinkedList)
 
-    for (issue <- searchResult.issues) {
+    for (issue <- searchResult.issues.par) {
       val prevSyncTs = Await.result(cacheManager.latestIssueTimestamp(), Duration(30, SECONDS))
       val cachedIssue = Await.result(cacheManager.getIssueById(issue.id), Duration(30, SECONDS))
       val allWorklogs =
@@ -189,16 +189,17 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val worklogsReq = WS.clientUrl(worklogsUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
-                    .withQueryString("maxResult" -> "1000")
+                    .withQueryString("maxResults" -> "1000")
     val respFuture = worklogsReq.get()
     val resp = Await.result(respFuture, reqTimeout)
 
     resp.json.validate[IssueWorklogs] match {
       case JsSuccess(issueWorklogs, path) => {
-        val issueWorklogsCopy = issueWorklogs.copy(issueKey = Some(issue.key))
-        cacheManager.updateIssueWorklogs(issueWorklogsCopy)
+        val enhancedWorklogs = issueWorklogs.worklogs.map(_.map(w => w.copy(issueKey = Option(issue.key))))
+        val enhancedIssueWorklogs = issueWorklogs.copy(issueKey = Some(issue.key), worklogs = enhancedWorklogs)
+        cacheManager.updateIssueWorklogs(enhancedIssueWorklogs)
         cacheManager.updateIssue(issue)
-        return (issueWorklogsCopy.worklogs getOrElse immutable.Seq.empty).par
+        return (enhancedIssueWorklogs.worklogs getOrElse immutable.Seq.empty).par
       }
       case JsError(errors) => {
         for (e <- errors) logger.error(e.toString())
@@ -214,7 +215,8 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
 
   def isWithinPeriod(fromDate: LocalDate, toDate: LocalDate, worklog: Worklog): Boolean = {
     val startDate = worklog.started.atStartOfDay(zoneId).toLocalDate
-    startDate.isEqual(fromDate) || startDate.isAfter(fromDate) && startDate.isBefore(toDate)
+    startDate.isEqual(fromDate) || startDate.isEqual(toDate) ||
+      (startDate.isAfter(fromDate) && startDate.isBefore(toDate))
   }
 
   def toWorklogEntry(sortedReverseMap: util.SortedMap[Worklog, BasicIssue], worklog: Worklog) = {

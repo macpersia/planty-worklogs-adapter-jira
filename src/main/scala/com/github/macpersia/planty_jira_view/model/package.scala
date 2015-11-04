@@ -15,7 +15,7 @@ package object model {
                            total: Int,
                            issues: Seq[BasicIssue])
 
-  case class BasicIssue( id: String, key: String, updated: ZonedDateTime, created: ZonedDateTime )
+  case class BasicIssue( id: String, key: String, created: ZonedDateTime, updated: ZonedDateTime )
 
   // case class FullIssue( id: String, key: String, fields: IssueFields )
 
@@ -50,7 +50,8 @@ package object model {
                       timeSpentSeconds: Int,
                       author: User,
                       updateAuthor: Option[User],
-                      comment: Option[String])
+                      comment: Option[String],
+                      issueKey: Option[String])
 
   val jiraDTFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZZ")
 
@@ -84,7 +85,8 @@ package object model {
     (JsPath \ "timeSpentSeconds").read[Int] and
     (JsPath \ "author").read[User] and
     (JsPath \ "updateAuthor").readNullable[User] and
-    (JsPath \ "comment").readNullable[String]
+    (JsPath \ "comment").readNullable[String] and
+    (JsPath \ "issueKey").readNullable[String]
   )(Worklog.apply _)
 
   implicit val issueWorklogsReads = Json.reads[IssueWorklogs]
@@ -119,7 +121,8 @@ package object model {
     (JsPath \ "timeSpentSeconds").write[Int] and
     (JsPath \ "author").write[User] and
     (JsPath \ "updateAuthor").writeNullable[User] and
-    (JsPath \ "comment").writeNullable[String]
+    (JsPath \ "comment").writeNullable[String] and
+    (JsPath \ "issueKey").writeNullable[String]
   )(unlift(Worklog.unapply))
 
   implicit val issueWorklogsWrites = Json.writes[IssueWorklogs]

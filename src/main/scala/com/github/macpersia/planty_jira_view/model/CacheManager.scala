@@ -50,7 +50,8 @@ class CacheManager(implicit execContext: ExecutionContext) {
       "timeSpentSeconds" ->  worklog.timeSpentSeconds,
       "author" -> worklog.author,
       "updateAuthor" -> worklog.updateAuthor,
-      "comment" -> worklog.comment
+      "comment" -> worklog.comment,
+      "issueKey" -> worklog.issueKey
     )
   }
 
@@ -86,7 +87,8 @@ class CacheManager(implicit execContext: ExecutionContext) {
       doc.getAs[Int]("timeSpentSeconds").get,
       doc.getAs[User]("author").get,
       doc.getAs[User]("updateAuthor"),
-      doc.getAs[String]("comment")
+      doc.getAs[String]("comment"),
+      doc.getAs[String]("issueKey")
     )
   }
 
