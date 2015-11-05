@@ -13,7 +13,8 @@ libraryDependencies ++= Seq(
   "com.jsuereth" %% "scala-arm" % "1.4",
   "com.typesafe.play" %% "play-ws" % "2.4.2",
   // "org.reactivemongo" %% "reactivemongo" % "0.11.7"
-  "org.reactivemongo" %% "play2-reactivemongo" % "0.11.7.play24"
+  //"org.reactivemongo" %% "play2-reactivemongo" % "0.11.7.play24"
+  "org.reactivemongo" %% "play2-reactivemongo" % "0.10.5.0.akka23"
 )
 
 // resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"

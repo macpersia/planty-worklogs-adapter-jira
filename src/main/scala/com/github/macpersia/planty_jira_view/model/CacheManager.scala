@@ -2,9 +2,12 @@ package com.github.macpersia.planty_jira_view.model
 
 import java.time.{Instant, ZoneId, ZonedDateTime}
 
+import play.api.libs.json.Json
+import play.modules.reactivemongo.json.BSONFormats
 import reactivemongo.api.MongoDriver
-import reactivemongo.api.collections.bson.BSONCollection
+import reactivemongo.api.collections.default.BSONCollection
 import reactivemongo.bson._
+import reactivemongo.core.commands._
 import reactivemongo.core.nodeset.Authenticate
 
 import scala.collection.immutable.Seq
@@ -24,7 +27,7 @@ class CacheManager(implicit execContext: ExecutionContext) {
   private val mongoDbPassword = sys.props.get("mongodb.password")
   private val credentials = Seq(Authenticate(mongoDbName, mongoDbUsername.orNull, mongoDbPassword.orNull))
 
-  private val connection = 
+  private val connection =
     if (mongoDbUsername.isDefined)
       driver.connection(servers, authentications = credentials)
     else
@@ -38,6 +41,7 @@ class CacheManager(implicit execContext: ExecutionContext) {
 
   implicit object InstantHandler extends BSONHandler[BSONDateTime, Instant] {
     def read(bson: BSONDateTime): Instant = Instant.ofEpochMilli(bson.value)
+
     def write(t: Instant) = BSONDateTime(t.toEpochMilli)
   }
 
@@ -63,7 +67,7 @@ class CacheManager(implicit execContext: ExecutionContext) {
     def write(worklog: Worklog) = BSONDocument(
       "id" -> worklog.id,
       "started" -> worklog.started.atStartOfDay(utcZoneId).toInstant,
-      "timeSpentSeconds" ->  worklog.timeSpentSeconds,
+      "timeSpentSeconds" -> worklog.timeSpentSeconds,
       "author" -> worklog.author,
       "updateAuthor" -> worklog.updateAuthor,
       "comment" -> worklog.comment,
@@ -121,7 +125,7 @@ class CacheManager(implicit execContext: ExecutionContext) {
   }
 
   def updateIssues(issues: Seq[BasicIssue]): Unit = {
-      for (issue <- issues.par) updateIssue(issue)
+    for (issue <- issues.par) updateIssue(issue)
   }
 
   def updateIssueWorklogs(issueWorklogs: IssueWorklogs) = {
@@ -129,15 +133,19 @@ class CacheManager(implicit execContext: ExecutionContext) {
   }
 
   def listIssues(): Future[Seq[BasicIssue]] = {
-    issuesColl.find(BSONDocument()).cursor[BasicIssue]().collect[Seq]()
+    issuesColl.find(BSONDocument()).cursor[BasicIssue].collect[Seq]()
   }
 
   def getIssueById(id: String) = {
-    issuesColl.find(BSONDocument("id" -> BSONDocument("$eq" -> id))).one[BasicIssue]
+    // issuesColl.find(BSONDocument("id" -> BSONDocument("$eq" -> id))).one[BasicIssue]
+    issuesColl.find(BSONDocument("id" -> BSONDocument("$in" -> BSONArray(id)))).one[BasicIssue]
   }
 
   def listWorklogs(issueKey: String): Future[ParSeq[Worklog]] = {
-    val futureRes = issueWorklogsColl.find(BSONDocument("issueKey" -> BSONDocument("$eq" -> issueKey))).one[IssueWorklogs]
+    val futureRes = issueWorklogsColl
+      // .find(BSONDocument("issueKey" -> BSONDocument("$eq" -> issueKey)))
+      .find(BSONDocument("issueKey" -> BSONDocument("$in" -> BSONArray(issueKey))))
+      .one[IssueWorklogs]
     val worklogs = futureRes.map(_ match {
       case Some(issueWorklogs) => issueWorklogs.worklogs match {
         case Some(seq) => seq.par
@@ -149,15 +157,27 @@ class CacheManager(implicit execContext: ExecutionContext) {
   }
 
   def latestIssueTimestamp(): Future[Option[ZonedDateTime]] = {
-    import issuesColl.BatchCommands.AggregationFramework._
-    // issuesColl.aggregate(Group(BSONString("$state"))(
+
     val fieldAlias = "latestTimestamp"
-    val futureRes = issuesColl.aggregate(Group(BSONNull)(
-      fieldAlias -> Max("updated")
+
+    //    import issuesColl.BatchCommands.AggregationFramework._
+    //    // issuesColl.aggregate(Group(BSONString("$state"))(
+    //    val futureRes = issuesColl.aggregate(Group(BSONNull)(
+    //      fieldAlias -> Max("updated")
+    //    ))
+    //    val futureDocs = futureRes.map(_.documents)
+
+    import play.modules.reactivemongo.json.BSONFormats._
+    val maxCommand = Aggregate(issuesColl.name, Seq(
+     Group(BSONNull)(fieldAlias -> Max("updated"))
     ))
-    futureRes.map(_.documents).map(_ match {
+    val futureRes = issuesColl.db.command(maxCommand)
+    val futureDocs = futureRes.map(_.toSeq)
+
+
+    futureDocs.map(_ match {
       case x :: xs => x.getAs[Instant](fieldAlias).map(_.atZone(utcZoneId))
-      case Nil => None
+      case _ => None
     })
   }
 }
