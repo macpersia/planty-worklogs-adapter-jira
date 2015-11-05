@@ -5,6 +5,7 @@ import java.time.{Instant, ZoneId, ZonedDateTime}
 import reactivemongo.api.MongoDriver
 import reactivemongo.api.collections.bson.BSONCollection
 import reactivemongo.bson._
+import reactivemongo.core.nodeset.Authenticate
 
 import scala.collection.immutable.Seq
 import scala.collection.parallel.immutable.ParSeq
