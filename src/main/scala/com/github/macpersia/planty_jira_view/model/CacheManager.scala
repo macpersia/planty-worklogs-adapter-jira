@@ -2,9 +2,10 @@ package com.github.macpersia.planty_jira_view.model
 
 import java.time.{Instant, ZoneId, ZonedDateTime}
 
-import reactivemongo.api.MongoDriver
+import reactivemongo.api.{MongoConnectionOptions, MongoDriver}
 import reactivemongo.api.collections.bson.BSONCollection
 import reactivemongo.bson._
+import reactivemongo.core.nodeset.Authenticate
 
 import scala.collection.immutable.Seq
 import scala.collection.parallel.immutable.ParSeq
@@ -13,8 +14,19 @@ import scala.concurrent.{ExecutionContext, Future}
 class CacheManager(implicit execContext: ExecutionContext) {
 
   private val driver = new MongoDriver
-  private val connection = driver.connection(List("localhost"))
-  private val db = connection("diy")(execContext)
+  private val mongoDbHost = sys.props.get("mongodb.host").getOrElse("localhost")
+  private val mongoDbPort = sys.props.get("mongodb.port").getOrElse(27017)
+  private val mongoDbName = sys.props.get("mongodb.name").getOrElse("diy")
+  private val mongoDbUsername = sys.props.get("mongodb.username")
+  private val mongoDbPassword = sys.props.get("mongodb.password")
+  private val connection = if (mongoDbUsername.isDefined)
+    driver.connection(
+      Seq(s"$mongoDbHost:$mongoDbPort"), MongoConnectionOptions(),
+      Seq(Authenticate(mongoDbName, mongoDbUsername.get, mongoDbPassword.orNull)))
+  else
+    driver.connection(Seq(s"$mongoDbHost:$mongoDbPort"))
+
+  private val db = connection(mongoDbName)(execContext)
   private val issuesColl: BSONCollection = db("jira.issues")
   private val issueWorklogsColl: BSONCollection = db("jira.issueWorklogs")
 
