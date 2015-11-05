@@ -4,17 +4,28 @@ import java.time.{Instant, ZoneId, ZonedDateTime}
 
 import play.api.libs.json.Json
 import play.modules.reactivemongo.json.BSONFormats
-import reactivemongo.api.MongoDriver
+import reactivemongo.api.{MongoConnection, MongoDriver}
 import reactivemongo.api.collections.default.BSONCollection
 import reactivemongo.bson._
 import reactivemongo.core.commands._
-import reactivemongo.core.nodeset.Authenticate
+import reactivemongo.core.nodeset.{Connection, Authenticate}
 
 import scala.collection.immutable.Seq
+import scala.collection.mutable
 import scala.collection.parallel.immutable.ParSeq
 import scala.concurrent.{ExecutionContext, Future}
 
-class CacheManager(implicit execContext: ExecutionContext) {
+object CacheManager {
+  private val ctxToCacheMap = synchronized(mutable.Map[ExecutionContext, CacheManager]())
+  def instance(implicit execContext: ExecutionContext): CacheManager =
+    ctxToCacheMap.getOrElse(execContext, {
+      val newCache = new CacheManager()(execContext)
+      ctxToCacheMap.put(execContext, newCache)
+      newCache
+    })
+}
+
+class CacheManager private (implicit execContext: ExecutionContext) {
 
   private val driver = new MongoDriver
 

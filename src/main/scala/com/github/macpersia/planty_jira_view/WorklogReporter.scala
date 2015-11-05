@@ -10,6 +10,7 @@ import java.util.Collections._
 import java.util._
 import java.util.concurrent.TimeUnit.MINUTES
 
+import com.github.macpersia.planty_jira_view.model.CacheManager
 import com.typesafe.scalalogging.LazyLogging
 import play.api.libs.json.{JsError, JsSuccess}
 import play.api.libs.ws.WS
@@ -48,8 +49,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
   extends LazyLogging with AutoCloseable {
 
   val zoneId = filter.timeZone.toZoneId
-  val cacheManager = new CacheManager()
-
+  lazy val cacheManager = CacheManager.instance
   implicit val sslClient = NingWSClient()
 
   override def close(): Unit = {
