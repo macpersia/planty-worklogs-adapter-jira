@@ -13,8 +13,23 @@ import scala.concurrent.{ExecutionContext, Future}
 class CacheManager(implicit execContext: ExecutionContext) {
 
   private val driver = new MongoDriver
-  private val connection = driver.connection(List("localhost"))
-  private val db = connection("diy")(execContext)
+
+  private val mongoDbHost = sys.props.get("mongodb.host").getOrElse("localhost")
+  private val mongoDbPort = sys.props.get("mongodb.port").getOrElse(27017)
+  private val servers = Seq(s"$mongoDbHost:$mongoDbPort")
+
+  private val mongoDbName = sys.props.get("mongodb.name").getOrElse("diy")
+  private val mongoDbUsername = sys.props.get("mongodb.username")
+  private val mongoDbPassword = sys.props.get("mongodb.password")
+  private val credentials = Seq(Authenticate(mongoDbName, mongoDbUsername.orNull, mongoDbPassword.orNull))
+
+  private val connection = 
+    if (mongoDbUsername.isDefined)
+      driver.connection(servers, authentications = credentials)
+    else
+      driver.connection(servers)
+
+  private val db = connection(mongoDbName)(execContext)
   private val issuesColl: BSONCollection = db("jira.issues")
   private val issueWorklogsColl: BSONCollection = db("jira.issueWorklogs")
 
