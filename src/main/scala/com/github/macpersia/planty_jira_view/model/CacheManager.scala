@@ -2,13 +2,11 @@ package com.github.macpersia.planty_jira_view.model
 
 import java.time.{Instant, ZoneId, ZonedDateTime}
 
-import play.api.libs.json.Json
-import play.modules.reactivemongo.json.BSONFormats
-import reactivemongo.api.{MongoConnection, MongoDriver}
+import reactivemongo.api.MongoDriver
 import reactivemongo.api.collections.default.BSONCollection
 import reactivemongo.bson._
 import reactivemongo.core.commands._
-import reactivemongo.core.nodeset.{Connection, Authenticate}
+import reactivemongo.core.nodeset.Authenticate
 
 import scala.collection.immutable.Seq
 import scala.collection.mutable
@@ -176,19 +174,14 @@ class CacheManager private (implicit execContext: ExecutionContext) {
     //    val futureRes = issuesColl.aggregate(Group(BSONNull)(
     //      fieldAlias -> Max("updated")
     //    ))
-    //    val futureDocs = futureRes.map(_.documents)
 
-    import play.modules.reactivemongo.json.BSONFormats._
     val maxCommand = Aggregate(issuesColl.name, Seq(
      Group(BSONNull)(fieldAlias -> Max("updated"))
     ))
     val futureRes = issuesColl.db.command(maxCommand)
-    val futureDocs = futureRes.map(_.toSeq)
 
-
-    futureDocs.map(_ match {
-      case x :: xs => x.getAs[Instant](fieldAlias).map(_.atZone(utcZoneId))
-      case _ => None
-    })
+    futureRes
+      .map(_.map(doc => doc.getAs[Instant](fieldAlias).map(_.atZone(utcZoneId))))
+      .map(_.head)
   }
 }
