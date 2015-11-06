@@ -185,7 +185,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
   private def retrieveWorklogsFromRestAPI(issue: BasicIssue, username: String, password: String): ParSeq[Worklog] = {
 
     val worklogsUrl = s"${connConfig.baseUri}/rest/api/2/issue/${issue.key}/worklog"
-    val reqTimeout = Duration(1, MINUTES)
+    val reqTimeout = Duration(2, MINUTES)
     val worklogsReq = WS.clientUrl(worklogsUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
