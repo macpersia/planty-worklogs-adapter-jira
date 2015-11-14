@@ -155,13 +155,13 @@ class CacheManager private (implicit execContext: ExecutionContext) {
       // .find(BSONDocument("issueKey" -> BSONDocument("$eq" -> issueKey)))
       .find(BSONDocument("issueKey" -> BSONDocument("$in" -> BSONArray(issueKey))))
       .one[IssueWorklogs]
-    val worklogs = futureRes.map(_ match {
+    val worklogs = futureRes.map {
       case Some(issueWorklogs) => issueWorklogs.worklogs match {
         case Some(seq) => seq.par
         case None => ParSeq.empty
       }
       case None => ParSeq.empty
-    })
+    }
     worklogs
   }
 
@@ -182,6 +182,6 @@ class CacheManager private (implicit execContext: ExecutionContext) {
 
     futureRes
       .map(_.map(doc => doc.getAs[Instant](fieldAlias).map(_.atZone(utcZoneId))))
-      .map(_.head)
+      .map(s => if(s.isEmpty) None else s.head)
   }
 }
