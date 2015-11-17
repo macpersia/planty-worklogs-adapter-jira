@@ -13,11 +13,16 @@ package object model {
   case class SearchResult( startAt: Int,
                            maxResults: Int,
                            total: Int,
-                           issues: Seq[BasicIssue])
+                           issues: Seq[BasicIssue] )
 
-  case class BasicIssue( id: String, key: String, created: ZonedDateTime, updated: ZonedDateTime )
+  case class BasicIssue( baseUrl: Option[String],
+                         id: String,
+                         key: String,
+                         created: ZonedDateTime,
+                         updated: ZonedDateTime )
 
-  // case class FullIssue( id: String, key: String, fields: IssueFields )
+  /*
+  case class FullIssue( id: String, key: String, fields: IssueFields )
 
   case class IssueFields( summary: String,
                           issueType: Option[IssueType],
@@ -34,14 +39,19 @@ package object model {
 
   case class Status( id: String, name: String, description: Option[String] )
 
-  case class User( name: String, displayName: String, emailAddress: Option[String], timeZone: Option[String] )
-
   case class Project( id: String, key: String, name: Option[String] )
 
   case class Priority( id: String, name: Option[String] )
+  */
 
+  case class User(
+                   baseUrl: Option[String],
+                   name: String,
+                   displayName: String,
+                   emailAddress: Option[String],
+                   timeZone: Option[String] )
 
-  case class IssueWorklogs( issueKey: Option[String],
+  case class IssueWorklogs( baseUrl: Option[String], issueKey: Option[String],
                             startAt: Option[Int], maxResults: Option[Int], total: Option[Int],
                             worklogs: Option[Seq[Worklog]] )
 
@@ -51,7 +61,8 @@ package object model {
                       author: User,
                       updateAuthor: Option[User],
                       comment: Option[String],
-                      issueKey: Option[String])
+                      issueKey: Option[String],
+                      baseUrl: Option[String] )
 
   val jiraDTFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZZ")
 
@@ -64,6 +75,7 @@ package object model {
 
 //  implicit val basicIssueReads = Json.reads[BasicIssue]
   implicit val basicIssueReads: Reads[BasicIssue] = (
+    (JsPath \ "baseUrl").readNullable[String] and
     (JsPath \ "id").read[String] and
     (JsPath \ "key").read[String] and
     (JsPath \ "fields" \ "created").read(readsZonedDateTime) and
@@ -86,7 +98,8 @@ package object model {
     (JsPath \ "author").read[User] and
     (JsPath \ "updateAuthor").readNullable[User] and
     (JsPath \ "comment").readNullable[String] and
-    (JsPath \ "issueKey").readNullable[String]
+    (JsPath \ "issueKey").readNullable[String] and
+    (JsPath \ "baseUrl").readNullable[String]
   )(Worklog.apply _)
 
   implicit val issueWorklogsReads = Json.reads[IssueWorklogs]
@@ -100,6 +113,7 @@ package object model {
 
 //  implicit val basicIssueWrites = Json.writes[BasicIssue]
   implicit val basicIssueWrites: Writes[BasicIssue] = (
+    (JsPath \ "baseUrl").writeNullable[String] and
     (JsPath \ "id").write[String] and
     (JsPath \ "key").write[String] and
     (JsPath \ "fields" \ "created").write(writesZonedDateTime) and
@@ -122,7 +136,8 @@ package object model {
     (JsPath \ "author").write[User] and
     (JsPath \ "updateAuthor").writeNullable[User] and
     (JsPath \ "comment").writeNullable[String] and
-    (JsPath \ "issueKey").writeNullable[String]
+    (JsPath \ "issueKey").writeNullable[String] and
+    (JsPath \ "baseUrl").writeNullable[String]
   )(unlift(Worklog.unapply))
 
   implicit val issueWorklogsWrites = Json.writes[IssueWorklogs]

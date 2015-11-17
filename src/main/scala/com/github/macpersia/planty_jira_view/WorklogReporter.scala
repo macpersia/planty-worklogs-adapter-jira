@@ -4,7 +4,7 @@ import java.io.{File, PrintStream}
 import java.net.URI
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatter.ofPattern
-import java.time.{LocalDate, ZoneId}
+import java.time.{ZonedDateTime, LocalDate, ZoneId}
 import java.util
 import java.util.Collections._
 import java.util._
@@ -24,19 +24,27 @@ import scala.collection.parallel.immutable.ParSeq
 import scala.concurrent.duration.{Duration, SECONDS}
 import scala.concurrent.{Await, ExecutionContext}
 
-case class ConnectionConfig( baseUri: URI,
+case class ConnectionConfig(
+                             baseUri: URI,
                              username: String,
-                             password: String)
+                             password: String ) {
+
+  val baseUriWithSlash = {
+    val baseUriStr = baseUri.toString
+    if (baseUriStr.endsWith("/")) baseUriStr
+    else s"$baseUriStr/"
+  }
+}
 
 case class WorklogFilter( jiraQuery: String,
                           author: Option[String],
                           fromDate: LocalDate,
                           toDate: LocalDate,
-                          timeZone: TimeZone)
+                          timeZone: TimeZone )
 
 case class WorklogEntry( date: LocalDate,
                          description: String,
-                         duration: Double)
+                         duration: Double )
 
 object WorklogReporter extends LazyLogging {
   val DATE_FORMATTER = DateTimeFormatter.ISO_DATE
@@ -56,7 +64,9 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     if (sslClient != null) sslClient.close()
   }
 
-  case class WorklogComparator(worklogsMap: util.Map[Worklog, BasicIssue]) extends Comparator[Worklog] {
+  class WorklogComparator(worklogsMap: util.Map[Worklog, BasicIssue])
+    extends Comparator[Worklog] {
+
     def compare(w1: Worklog, w2: Worklog) = {
       Ordering[(Long, String)].compare(
         (w1.started.toEpochDay, worklogsMap.get(w1).key),
@@ -82,15 +92,15 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
   def retrieveWorklogs(): Seq[WorklogEntry] = {
 
     val latestIssueTs = Await.result(
-      cacheManager.latestIssueTimestamp(),
+      cacheManager.latestIssueTimestamp(connConfig.baseUriWithSlash),
       Duration(10, SECONDS))
-    logger.debug(s"Previous timestamp for updates: ${latestIssueTs}")
+    logger.debug(s"Previous timestamp for updates: $latestIssueTs")
 
-    logger.debug(s"Searching the JIRA at ${connConfig.baseUri} as ${connConfig.username}")
+    logger.debug(s"Searching the JIRA at ${connConfig.baseUriWithSlash} as ${connConfig.username}")
 
     val reqTimeout = Duration(1, MINUTES)
 
-    val userUrl = connConfig.baseUri.toString + s"/rest/api/2/user?username=${connConfig.username}"
+    val userUrl = connConfig.baseUriWithSlash + s"rest/api/2/user?username=${connConfig.username}"
     val userReq = WS.clientUrl(userUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
@@ -103,8 +113,8 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val fromDateFormatted: String = dateTimeFormatter.format(filter.fromDate)
     val toDateFormatted: String = dateTimeFormatter.format(filter.toDate)
 
-    val searchUrl = connConfig.baseUri.toString + "/rest/api/2/search"
-    val jql: String = Seq(filter.jiraQuery, s"updated>=${fromDateFormatted} AND created<=${toDateFormatted}")
+    val searchUrl = connConfig.baseUriWithSlash + "rest/api/2/search"
+    val jql: String = Seq(filter.jiraQuery, s"updated>=$fromDateFormatted AND created<=$toDateFormatted")
       .mkString(" AND ")
     val searchReq = WS.clientUrl(searchUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
@@ -117,15 +127,13 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val searchFuture = searchReq.get()
     val searchResp = Await.result(searchFuture, reqTimeout)
     searchResp.json.validate[SearchResult] match {
-      case JsSuccess(searchResult, path) => {
-        val worklogsMap: util.Map[Worklog, BasicIssue] = exxtractWorklogs(searchResult)
+      case JsSuccess(searchResult, path) =>
+        val worklogsMap: util.Map[Worklog, BasicIssue] = extractWorklogs(searchResult, latestIssueTs)
         return toWorklogEntries(worklogsMap)
-      }
-      case JsError(errors) => {
+      case JsError(errors) =>
         for (e <- errors) logger.error(e.toString())
         logger.debug("The body of search response: \n" + searchResp.body)
         throw new RuntimeException("Search Failed!")
-      }
     }
   }
 
@@ -143,16 +151,30 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     }
   }
 
-  def exxtractWorklogs(searchResult: SearchResult) : util.Map[Worklog, BasicIssue] = {
+  def toWorklogEntry(sortedReverseMap: util.SortedMap[Worklog, BasicIssue], worklog: Worklog) = {
+    val issueKey = sortedReverseMap.get(worklog).key
+    val secondsSpent = worklog.timeSpentSeconds.toDouble
+    val hoursPerLog = secondsSpent / 60 / 60
+    new WorklogEntry(
+      date = worklog.started.atStartOfDay(zoneId).toLocalDate,
+      description = issueKey,
+      duration = hoursPerLog)
+  }
+
+  def extractWorklogs(searchResult: SearchResult, prevSyncTimestamp: Option[ZonedDateTime])
+  : util.Map[Worklog, BasicIssue] = {
 
     val worklogsMap: util.Map[Worklog, BasicIssue] = synchronizedMap(new util.HashMap)
     val myWorklogs: util.List[Worklog] = synchronizedList(new util.LinkedList)
 
-    for (issue <- searchResult.issues.par) {
-      val prevSyncTs = Await.result(cacheManager.latestIssueTimestamp(), Duration(30, SECONDS))
-      val cachedIssue = Await.result(cacheManager.getIssueById(issue.id), Duration(30, SECONDS))
+    val baseUrlOption = Option(connConfig.baseUriWithSlash)
+    for (issue <- searchResult.issues.map(_.copy(baseUrl = baseUrlOption)).par) {
+      val cachedIssue = Await.result(
+        cacheManager.getIssueByBaseUrlAndId(issue.baseUrl.get, issue.id),
+        Duration(30, SECONDS)
+      )
       val allWorklogs =
-        if (prevSyncTs.isEmpty || cachedIssue.isEmpty || (issue.updated isAfter cachedIssue.get.updated)) {
+        if (prevSyncTimestamp.isEmpty || cachedIssue.isEmpty || (issue.updated isAfter cachedIssue.get.updated)) {
           //val issueUrl = connConfig.baseUri.toString + s"/rest/api/2/issue/${issue.key}"
           //logger.debug(s"Retrieving issue ${issue.key} at $issueUrl")
           //
@@ -164,7 +186,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
           // val issueResult = searchResp.json.validate[FullIssue].get
           retrieveWorklogsFromRestAPI(issue, connConfig.username, connConfig.password)
         } else
-          Await.result(cacheManager.listWorklogs(issue.key), Duration(30, SECONDS))
+          Await.result(cacheManager.listWorklogs(issue.baseUrl.get, issue.key), Duration(30, SECONDS))
 
       for (worklog <- allWorklogs) {
         val author = filter.author match {
@@ -184,7 +206,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
 
   private def retrieveWorklogsFromRestAPI(issue: BasicIssue, username: String, password: String): ParSeq[Worklog] = {
 
-    val worklogsUrl = s"${connConfig.baseUri}/rest/api/2/issue/${issue.key}/worklog"
+    val worklogsUrl = s"${connConfig.baseUriWithSlash}rest/api/2/issue/${issue.key}/worklog"
     val reqTimeout = Duration(2, MINUTES)
     val worklogsReq = WS.clientUrl(worklogsUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
@@ -194,18 +216,23 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val resp = Await.result(respFuture, reqTimeout)
 
     resp.json.validate[IssueWorklogs] match {
-      case JsSuccess(issueWorklogs, path) => {
-        val enhancedWorklogs = issueWorklogs.worklogs.map(_.map(w => w.copy(issueKey = Option(issue.key))))
-        val enhancedIssueWorklogs = issueWorklogs.copy(issueKey = Some(issue.key), worklogs = enhancedWorklogs)
-        cacheManager.updateIssueWorklogs(enhancedIssueWorklogs)
-        cacheManager.updateIssue(issue)
+      case JsSuccess(issueWorklogs, path) =>
+        val baseUrl = connConfig.baseUriWithSlash
+        val enhancedWorklogs = issueWorklogs.worklogs.map(_.map(w => w.copy(
+            issueKey = Option(issue.key), baseUrl = Option(baseUrl)
+        )))
+        val enhancedIssueWorklogs = issueWorklogs.copy(
+          baseUrl = Option(baseUrl), issueKey = Option(issue.key), worklogs = enhancedWorklogs
+        )
+        cacheManager.updateIssueWorklogs(enhancedIssueWorklogs) onSuccess {
+          case lastError => if (lastError.ok)
+            cacheManager.updateIssue(issue)
+        }
         return (enhancedIssueWorklogs.worklogs getOrElse immutable.Seq.empty).par
-      }
-      case JsError(errors) => {
+      case JsError(errors) =>
         for (e <- errors) logger.error(e.toString())
         logger.debug("The body of search response: \n" + resp.body)
         throw new RuntimeException("Retrieving Worklogs Failed!")
-      }
     }
   }
 
@@ -217,16 +244,6 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
     val startDate = worklog.started.atStartOfDay(zoneId).toLocalDate
     startDate.isEqual(fromDate) || startDate.isEqual(toDate) ||
       (startDate.isAfter(fromDate) && startDate.isBefore(toDate))
-  }
-
-  def toWorklogEntry(sortedReverseMap: util.SortedMap[Worklog, BasicIssue], worklog: Worklog) = {
-    val issueKey = sortedReverseMap.get(worklog).key
-    val secondsSpent = worklog.timeSpentSeconds.toDouble
-    val hoursPerLog = secondsSpent / 60 / 60
-    new WorklogEntry(
-      date = worklog.started.atStartOfDay(zoneId).toLocalDate,
-      description = issueKey,
-      duration = hoursPerLog)
   }
 
   def toFuzzyDuration(totalMinutes: Int): String = {

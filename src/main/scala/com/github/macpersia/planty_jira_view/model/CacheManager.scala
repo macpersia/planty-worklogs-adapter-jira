@@ -56,6 +56,7 @@ class CacheManager private (implicit execContext: ExecutionContext) {
 
   implicit object BasicIssueWriter extends BSONDocumentWriter[BasicIssue] {
     def write(issue: BasicIssue) = BSONDocument(
+      "baseUrl" -> issue.baseUrl,
       "id" -> issue.id,
       "key" -> issue.key,
       "created" -> issue.created.toInstant,
@@ -65,6 +66,7 @@ class CacheManager private (implicit execContext: ExecutionContext) {
 
   implicit object UserWriter extends BSONDocumentWriter[User] {
     def write(user: User) = BSONDocument(
+      "baseUrl" -> user.baseUrl,
       "name" -> user.name,
       "displayName" -> user.displayName,
       "emailAddress" -> user.emailAddress,
@@ -80,19 +82,22 @@ class CacheManager private (implicit execContext: ExecutionContext) {
       "author" -> worklog.author,
       "updateAuthor" -> worklog.updateAuthor,
       "comment" -> worklog.comment,
-      "issueKey" -> worklog.issueKey
+      "issueKey" -> worklog.issueKey,
+      "baseUrl" -> worklog.baseUrl
     )
   }
 
   implicit object IssueWorklogsWriter extends BSONDocumentWriter[IssueWorklogs] {
-    def write(issueWorklogs: IssueWorklogs) = BSONDocument(
-      "issueKey" -> issueWorklogs.issueKey,
-      "worklogs" -> issueWorklogs.worklogs
+    def write(iw: IssueWorklogs) = BSONDocument(
+      "baseUrl" -> iw.baseUrl,
+      "issueKey" -> iw.issueKey,
+      "worklogs" -> iw.worklogs
     )
   }
 
   implicit object BasicIssueReader extends BSONDocumentReader[BasicIssue] {
     def read(doc: BSONDocument) = BasicIssue(
+      doc.getAs[String]("baseUrl"),
       doc.getAs[String]("id").get,
       doc.getAs[String]("key").get,
       doc.getAs[Instant]("created").get.atZone(utcZoneId),
@@ -102,6 +107,7 @@ class CacheManager private (implicit execContext: ExecutionContext) {
 
   implicit object UserReader extends BSONDocumentReader[User] {
     def read(doc: BSONDocument) = User(
+      doc.getAs[String]("baseUrl"),
       doc.getAs[String]("name").get,
       doc.getAs[String]("displayName").get,
       doc.getAs[String]("emailAddress"),
@@ -117,12 +123,14 @@ class CacheManager private (implicit execContext: ExecutionContext) {
       doc.getAs[User]("author").get,
       doc.getAs[User]("updateAuthor"),
       doc.getAs[String]("comment"),
-      doc.getAs[String]("issueKey")
+      doc.getAs[String]("issueKey"),
+      doc.getAs[String]("baseUrl")
     )
   }
 
   implicit object IssueWorklogsReader extends BSONDocumentReader[IssueWorklogs] {
     def read(doc: BSONDocument) = IssueWorklogs(
+      doc.getAs[String]("baseUrl"),
       doc.getAs[String]("issueKey"),
       null, null, null,
       doc.getAs[Seq[Worklog]]("worklogs")
@@ -130,30 +138,49 @@ class CacheManager private (implicit execContext: ExecutionContext) {
   }
 
   def updateIssue(issue: BasicIssue): Unit = {
-    issuesColl.update(BSONDocument("id" -> issue.id), issue, upsert = true)
+    issuesColl.update(issueSelector(issue), issue, upsert = true)
   }
 
   def updateIssues(issues: Seq[BasicIssue]): Unit = {
     for (issue <- issues.par) updateIssue(issue)
   }
 
-  def updateIssueWorklogs(issueWorklogs: IssueWorklogs) = {
-    issueWorklogsColl.update(BSONDocument("id" -> issueWorklogs.issueKey), issueWorklogs, upsert = true)
+  def updateIssueWorklogs(iw: IssueWorklogs) = {
+    issueWorklogsColl.update(issueWorklogsSelector(iw), iw, upsert = true)
   }
 
-  def listIssues(): Future[Seq[BasicIssue]] = {
-    issuesColl.find(BSONDocument()).cursor[BasicIssue].collect[Seq]()
-  }
+//  def listIssues(): Future[Seq[BasicIssue]] = {
+//    issuesColl.find(BSONDocument()).cursor[BasicIssue].collect[Seq]()
+//  }
 
-  def getIssueById(id: String) = {
+  def getIssueByBaseUrlAndId(baseUrl: String, id: String) = {
     // issuesColl.find(BSONDocument("id" -> BSONDocument("$eq" -> id))).one[BasicIssue]
-    issuesColl.find(BSONDocument("id" -> BSONDocument("$in" -> BSONArray(id)))).one[BasicIssue]
+    issuesColl.find(issueSelector(baseUrl, id)).one[BasicIssue]
   }
 
-  def listWorklogs(issueKey: String): Future[ParSeq[Worklog]] = {
+  def issueSelector(issue: BasicIssue): BSONDocument =
+    issueSelector(issue.baseUrl.get, issue.id)
+
+  def issueSelector(baseUrl: String, id: String): BSONDocument = {
+    BSONDocument("$and" -> BSONArray(
+      BSONDocument("baseUrl" -> BSONDocument("$in" -> BSONArray(baseUrl))),
+      BSONDocument("id" -> BSONDocument("$in" -> BSONArray(id)))
+    ))
+  }
+
+  def issueWorklogsSelector(iw: IssueWorklogs): BSONDocument =
+    issueWorklogsSelector(iw.baseUrl.get, iw.issueKey.get)
+
+  def issueWorklogsSelector(baseUrl: String, issueKey: String): BSONDocument = {
+    BSONDocument("$and" -> BSONArray(
+      BSONDocument("baseUrl" -> BSONDocument("$in" -> BSONArray(baseUrl))),
+      BSONDocument("issueKey" -> BSONDocument("$in" -> BSONArray(issueKey)))
+    ))
+  }
+
+  def listWorklogs(baseUrl: String, issueKey: String): Future[ParSeq[Worklog]] = {
     val futureRes = issueWorklogsColl
-      // .find(BSONDocument("issueKey" -> BSONDocument("$eq" -> issueKey)))
-      .find(BSONDocument("issueKey" -> BSONDocument("$in" -> BSONArray(issueKey))))
+      .find(issueWorklogsSelector(baseUrl, issueKey))
       .one[IssueWorklogs]
     val worklogs = futureRes.map {
       case Some(issueWorklogs) => issueWorklogs.worklogs match {
@@ -165,9 +192,9 @@ class CacheManager private (implicit execContext: ExecutionContext) {
     worklogs
   }
 
-  def latestIssueTimestamp(): Future[Option[ZonedDateTime]] = {
+  def latestIssueTimestamp(baseUrl: String): Future[Option[ZonedDateTime]] = {
 
-    val fieldAlias = "latestTimestamp"
+    val latestTsAlias = "latestTimestamp"
 
     //    import issuesColl.BatchCommands.AggregationFramework._
     //    // issuesColl.aggregate(Group(BSONString("$state"))(
@@ -176,12 +203,13 @@ class CacheManager private (implicit execContext: ExecutionContext) {
     //    ))
 
     val maxCommand = Aggregate(issuesColl.name, Seq(
-     Group(BSONNull)(fieldAlias -> Max("updated"))
+     Match(BSONDocument("baseUrl" -> baseUrl)),
+     Group(BSONNull)(latestTsAlias -> Max("updated"))
     ))
     val futureRes = issuesColl.db.command(maxCommand)
 
     futureRes
-      .map(_.map(doc => doc.getAs[Instant](fieldAlias).map(_.atZone(utcZoneId))))
+      .map(_.map(doc => doc.getAs[Instant](latestTsAlias).map(_.atZone(utcZoneId))))
       .map(s => if(s.isEmpty) None else s.head)
   }
 }
