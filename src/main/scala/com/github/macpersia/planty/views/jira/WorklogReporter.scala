@@ -1,16 +1,17 @@
-package com.github.macpersia.planty_jira_view
+package com.github.macpersia.planty.views.jira
 
 import java.io.{File, PrintStream}
 import java.net.URI
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatter.ofPattern
-import java.time.{ZonedDateTime, LocalDate, ZoneId}
+import java.time.{LocalDate, ZoneId, ZonedDateTime}
 import java.util
 import java.util.Collections._
 import java.util._
 import java.util.concurrent.TimeUnit.MINUTES
 
-import com.github.macpersia.planty_jira_view.model.CacheManager
+import com.github.macpersia.planty.views.jira.model._
+import com.github.macpersia.planty.worklogs.model.{WorklogFilter, WorklogEntry}
 import com.typesafe.scalalogging.LazyLogging
 import play.api.libs.json.{JsError, JsSuccess}
 import play.api.libs.ws.WS
@@ -24,35 +25,22 @@ import scala.collection.parallel.immutable.ParSeq
 import scala.concurrent.duration.{Duration, SECONDS}
 import scala.concurrent.{Await, ExecutionContext}
 
-case class ConnectionConfig(
-                             baseUri: URI,
+case class ConnectionConfig( baseUri: URI,
                              username: String,
-                             password: String ) {
-
-  val baseUriWithSlash = {
-    val baseUriStr = baseUri.toString
-    if (baseUriStr.endsWith("/")) baseUriStr
-    else s"$baseUriStr/"
-  }
+                             password: String
+                           ) {
+ val baseUriWithSlash = {
+   val baseUriStr = baseUri.toString
+   if (baseUriStr.endsWith("/")) baseUriStr
+   else s"$baseUriStr/"
+ }
 }
-
-case class WorklogFilter( jiraQuery: String,
-                          author: Option[String],
-                          fromDate: LocalDate,
-                          toDate: LocalDate,
-                          timeZone: TimeZone )
-
-case class WorklogEntry( date: LocalDate,
-                         description: String,
-                         duration: Double )
 
 object WorklogReporter extends LazyLogging {
   val DATE_FORMATTER = DateTimeFormatter.ISO_DATE
 }
 
-import com.github.macpersia.planty_jira_view.model._
-
-class WorklogReporter(connConfig: ConnectionConfig, filter: WorklogFilter)
+class WorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilter)
                      (implicit execContext: ExecutionContext)
   extends LazyLogging with AutoCloseable {
 

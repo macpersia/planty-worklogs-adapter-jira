@@ -1,4 +1,4 @@
-package com.github.macpersia.planty_jira_view.model
+package com.github.macpersia.planty.views.jira.model
 
 import java.time.{Instant, ZoneId, ZonedDateTime}
 

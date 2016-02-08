@@ -5,6 +5,7 @@ version := "1.0-SNAPSHOT"
 scalaVersion := "2.11.6"
 
 libraryDependencies ++= Seq(
+  "default" %% "planty-worklogs-common" % "1.0-SNAPSHOT",
   "com.typesafe.scala-logging" %% "scala-logging" % "3.1.0",
   "ch.qos.logback" % "logback-classic" % "1.1.3",
   //   "net.sf.jopt-simple" % "jopt-simple" % "4.9",

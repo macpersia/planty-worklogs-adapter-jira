@@ -1,32 +1,18 @@
-package com.github.macpersia.planty_jira_view
+package com.github.macpersia.planty.views.jira
 
 import java.io.{File, FileNotFoundException}
-import java.net._
+import java.net.{URI, URISyntaxException}
 import java.time.LocalDate
 import java.util.TimeZone
 
-import com.github.macpersia.planty_jira_view.WorklogReporter._
+import com.github.macpersia.planty.views.jira.WorklogReporter._
+import com.github.macpersia.planty.views.jira.model.JiraWorklogFilter
+import com.github.macpersia.planty.worklogs.model.WorklogFilter
 import com.typesafe.scalalogging.LazyLogging
-import resource.managed
+import resource._
 import scopt.OptionParser
 
-import scala.concurrent.ExecutionContext.Implicits.global
-
-case class AppParams(
-                      baseUrl: URI = new URI("https://jira.atlassian.com"),
-                      // baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"),
-                      username: String = null,
-                      password: String = null,
-                      jiraQuery: String =
-                      "project = CLOUD",
-                      //"project = BICM AND labels = 2015 AND labels IN ('#8', '#9') AND summary ~ 'Project Management'",
-                      // fromDate: DateTime = dateFormatter parseDateTime "2015-08-16" ,
-                      // toDate: DateTime = dateFormatter parseDateTime "2015-09-22",
-                      author: Option[String] = None,
-                      fromDate: LocalDate = LocalDate.now minusWeeks 1,
-                      toDate: LocalDate = LocalDate.now plusDays 1,
-                      timeZone: TimeZone = TimeZone.getDefault,
-                      outputFile: Option[File] = None )
+import scala.concurrent.ExecutionContext.Implicits._
 
 object App extends LazyLogging {
 
@@ -58,8 +44,8 @@ object App extends LazyLogging {
               params.username,
               if (params.password != null) params.password else promptForPassword
         )
-        val filter: WorklogFilter = WorklogFilter(
-          params.jiraQuery, params.author, params.fromDate, params.toDate, params.timeZone)
+        val filter: JiraWorklogFilter = JiraWorklogFilter(
+          params.author, params.fromDate, params.toDate, params.timeZone, params.jiraQuery)
 
         for (reporter <- managed(new WorklogReporter(connConfig, filter)(global))) {
           reporter.printWorklogsAsCsv(params.outputFile)
@@ -74,3 +60,18 @@ object App extends LazyLogging {
   }
 }
 
+case class AppParams(
+                      baseUrl: URI = new URI("https://jira.atlassian.com"),
+                      // baseUrl: URI = new URI("https://jira02.jirahosting.de/jira"),
+                      username: String = null,
+                      password: String = null,
+                      jiraQuery: String =
+                      "project = CLOUD",
+                      //"project = BICM AND labels = 2015 AND labels IN ('#8', '#9') AND summary ~ 'Project Management'",
+                      author: Option[String] = None,
+                      // fromDate: DateTime = dateFormatter parseDateTime "2015-08-16" ,
+                      // toDate: DateTime = dateFormatter parseDateTime "2015-09-22",
+                      fromDate: LocalDate = LocalDate.now minusWeeks 1,
+                      toDate: LocalDate = LocalDate.now plusDays 1,
+                      timeZone: TimeZone = TimeZone.getDefault,
+                      outputFile: Option[File] = None )

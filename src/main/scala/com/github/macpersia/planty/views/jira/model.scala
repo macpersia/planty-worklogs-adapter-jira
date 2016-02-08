@@ -1,14 +1,30 @@
-package com.github.macpersia.planty_jira_view
+package com.github.macpersia.planty.views.jira
 
 import java.time.format.DateTimeFormatter
 import java.time.{LocalDate, ZonedDateTime}
+import java.util.TimeZone
 
+import com.github.macpersia.planty.worklogs.model.WorklogFilter
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
 
-import scala.collection.immutable._
+import scala.collection.immutable.Seq
 
 package object model {
+
+  case class JiraWorklogFilter(
+      override val author: Option[String],
+      override val fromDate: LocalDate,
+      override val toDate: LocalDate,
+      override val timeZone: TimeZone,
+      jiraQuery: String
+
+  ) extends WorklogFilter(
+      author,
+      fromDate,
+      toDate,
+      timeZone
+  )
 
   case class SearchResult( startAt: Int,
                            maxResults: Int,
@@ -67,10 +83,12 @@ package object model {
   val jiraDTFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZZ")
 
   implicit val readsLocalDate = Reads[LocalDate] ( js =>
-    js.validate[String].map[LocalDate]      (dtString => LocalDate.parse(dtString, jiraDTFormatter))
+    js.validate[String].map[LocalDate]
+      (dtString => LocalDate.parse(dtString, jiraDTFormatter))
   )
   implicit val readsZonedDateTime = Reads[ZonedDateTime] ( js =>
-    js.validate[String].map[ZonedDateTime]  (dtString => ZonedDateTime.parse(dtString, jiraDTFormatter))
+    js.validate[String].map[ZonedDateTime]
+      (dtString => ZonedDateTime.parse(dtString, jiraDTFormatter))
   )
 
 //  implicit val basicIssueReads = Json.reads[BasicIssue]
