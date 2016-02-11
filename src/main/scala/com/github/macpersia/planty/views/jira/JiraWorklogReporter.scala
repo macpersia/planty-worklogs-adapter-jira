@@ -11,6 +11,7 @@ import java.util._
 import java.util.concurrent.TimeUnit.MINUTES
 
 import com.github.macpersia.planty.views.jira.model._
+import com.github.macpersia.planty.worklogs.WorklogReporting
 import com.github.macpersia.planty.worklogs.model.{WorklogFilter, WorklogEntry}
 import com.typesafe.scalalogging.LazyLogging
 import play.api.libs.json.{JsError, JsSuccess}
@@ -36,13 +37,13 @@ case class ConnectionConfig( baseUri: URI,
  }
 }
 
-object WorklogReporter extends LazyLogging {
+object JiraWorklogReporter extends LazyLogging {
   val DATE_FORMATTER = DateTimeFormatter.ISO_DATE
 }
 
-class WorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilter)
-                     (implicit execContext: ExecutionContext)
-  extends LazyLogging with AutoCloseable {
+class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilter)
+                         (implicit execContext: ExecutionContext)
+  extends LazyLogging with WorklogReporting {
 
   val zoneId = filter.timeZone.toZoneId
   lazy val cacheManager = CacheManager.instance
@@ -68,7 +69,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilter)
          if (outputFile.isDefined) new PrintStream(outputFile.get)
          else Console.out )) {
       for (entry <- retrieveWorklogs())
-        printWorklogAsCsv(entry, csvPrintStream, WorklogReporter.DATE_FORMATTER)
+        printWorklogAsCsv(entry, csvPrintStream, JiraWorklogReporter.DATE_FORMATTER)
     }
   }
 
@@ -77,7 +78,7 @@ class WorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilter)
     csvPs.println(s"$date, ${entry.description}, ${entry.duration}")
   }
 
-  def retrieveWorklogs(): Seq[WorklogEntry] = {
+  override def retrieveWorklogs(): Seq[WorklogEntry] = {
 
     val latestIssueTs = Await.result(
       cacheManager.latestIssueTimestamp(connConfig.baseUriWithSlash),

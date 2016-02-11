@@ -5,7 +5,7 @@ import java.net.{URI, URISyntaxException}
 import java.time.LocalDate
 import java.util.TimeZone
 
-import com.github.macpersia.planty.views.jira.WorklogReporter._
+import com.github.macpersia.planty.views.jira.JiraWorklogReporter._
 import com.github.macpersia.planty.views.jira.model.JiraWorklogFilter
 import com.github.macpersia.planty.worklogs.model.WorklogFilter
 import com.typesafe.scalalogging.LazyLogging
@@ -47,7 +47,7 @@ object App extends LazyLogging {
         val filter: JiraWorklogFilter = JiraWorklogFilter(
           params.author, params.fromDate, params.toDate, params.timeZone, params.jiraQuery)
 
-        for (reporter <- managed(new WorklogReporter(connConfig, filter)(global))) {
+        for (reporter <- managed(new JiraWorklogReporter(connConfig, filter)(global))) {
           reporter.printWorklogsAsCsv(params.outputFile)
           sys.exit(0)
         }
