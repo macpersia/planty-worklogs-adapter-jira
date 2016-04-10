@@ -8,3 +8,4 @@ target
 /RUNNING_PID
 /bin
 JIRA-worklogs.csv
+.cache-main
