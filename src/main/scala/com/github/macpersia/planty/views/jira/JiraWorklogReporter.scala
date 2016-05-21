@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit.MINUTES
 
 import com.github.macpersia.planty.views.jira.model._
 import com.github.macpersia.planty.worklogs.WorklogReporting
-import com.github.macpersia.planty.worklogs.model.{WorklogFilter, WorklogEntry}
+import com.github.macpersia.planty.worklogs.model.{WorklogEntry, WorklogFilter}
 import com.typesafe.scalalogging.LazyLogging
 import play.api.libs.json.{JsError, JsSuccess}
 import play.api.libs.ws.WS
@@ -25,6 +25,7 @@ import scala.collection.immutable
 import scala.collection.parallel.immutable.ParSeq
 import scala.concurrent.duration.{Duration, SECONDS}
 import scala.concurrent.{Await, ExecutionContext}
+import scala.util.{Failure, Success, Try}
 
 case class ConnectionConfig( baseUri: URI,
                              username: String,
@@ -105,26 +106,39 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
     val searchUrl = connConfig.baseUriWithSlash + "rest/api/2/search"
     val jql: String = Seq(filter.jiraQuery, s"updated>=$fromDateFormatted AND created<=$toDateFormatted")
       .mkString(" AND ")
+    val maxResults = 1000
     val searchReq = WS.clientUrl(searchUrl)
                     .withAuth(connConfig.username, connConfig.password, BASIC)
                     .withHeaders("Content-Type" -> "application/json")
                     .withQueryString(
                       "jql" -> jql,
-                      "maxResults" -> "1000",
+                      "maxResults" -> s"$maxResults",
                       "fields" -> "updated,created"
                     )
-    val searchFuture = searchReq.get()
-    val searchResp = Await.result(searchFuture, reqTimeout)
-    searchResp.json.validate[SearchResult] match {
-      case JsSuccess(searchResult, path) =>
-        val worklogsMap: util.Map[Worklog, BasicIssue] = extractWorklogs(searchResult, latestIssueTs)
-        return toWorklogEntries(worklogsMap)
-      case JsError(errors) =>
-        for (e <- errors) logger.error(e.toString())
-        logger.debug("The body of search response: \n" + searchResp.body)
-        throw new RuntimeException("Search Failed!")
+
+    def fetchMatchingIssues(startAt: Int, acc: Seq[BasicIssue]): Try[Seq[BasicIssue]] = {
+      val searchFuture = searchReq.withQueryString("startAt" -> s"$startAt").get()
+      val searchResp = Await.result(searchFuture, reqTimeout)
+      searchResp.json.validate[SearchResult] match {
+        case JsSuccess(result, path) =>
+          val issues: Seq[BasicIssue] = acc ++ result.issues
+          if (issues.size < result.total)
+            return fetchMatchingIssues(startAt = issues.size, acc = issues)
+          else
+            return Success(issues)
+
+        case JsError(errors) =>
+          for (e <- errors) logger.error(e.toString())
+          logger.debug("The body of search response: \n" + searchResp.body)
+          return Failure(new RuntimeException("Search Failed!"))
+      }
     }
+    val issues = fetchMatchingIssues(startAt = 0, acc = Nil).get
+    val worklogsMap: util.Map[Worklog, BasicIssue] = extractWorklogs(issues, latestIssueTs)
+    return toWorklogEntries(worklogsMap)
   }
+
+
 
   def toWorklogEntries(worklogsMap: util.Map[Worklog, BasicIssue]): Seq[WorklogEntry] = {
     if (worklogsMap.isEmpty)
@@ -150,14 +164,14 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
       duration = hoursPerLog)
   }
 
-  def extractWorklogs(searchResult: SearchResult, prevSyncTimestamp: Option[ZonedDateTime])
+  def extractWorklogs(issues: Seq[BasicIssue], prevSyncTimestamp: Option[ZonedDateTime])
   : util.Map[Worklog, BasicIssue] = {
 
     val worklogsMap: util.Map[Worklog, BasicIssue] = synchronizedMap(new util.HashMap)
     val myWorklogs: util.List[Worklog] = synchronizedList(new util.LinkedList)
 
     val baseUrlOption = Option(connConfig.baseUriWithSlash)
-    for (issue <- searchResult.issues.map(_.copy(baseUrl = baseUrlOption)).par) {
+    for (issue <- issues.map(_.copy(baseUrl = baseUrlOption)).par) {
       val cachedIssue = Await.result(
         cacheManager.getIssueByBaseUrlAndId(issue.baseUrl.get, issue.id),
         Duration(30, SECONDS)
