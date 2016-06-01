@@ -27,15 +27,15 @@ import scala.concurrent.duration.{Duration, SECONDS}
 import scala.concurrent.{Await, ExecutionContext}
 import scala.util.{Failure, Success, Try}
 
-case class ConnectionConfig( baseUri: URI,
-                             username: String,
-                             password: String
+case class ConnectionConfig(baseUri: URI,
+                            username: String,
+                            password: String
                            ) {
- val baseUriWithSlash = {
-   val baseUriStr = baseUri.toString
-   if (baseUriStr.endsWith("/")) baseUriStr
-   else s"$baseUriStr/"
- }
+  val baseUriWithSlash = {
+    val baseUriStr = baseUri.toString
+    if (baseUriStr.endsWith("/")) baseUriStr
+    else s"$baseUriStr/"
+  }
 }
 
 object JiraWorklogReporter extends LazyLogging {
@@ -67,8 +67,8 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
 
   def printWorklogsAsCsv(outputFile: Option[File]) {
     for (csvPrintStream <- managed(
-         if (outputFile.isDefined) new PrintStream(outputFile.get)
-         else Console.out )) {
+      if (outputFile.isDefined) new PrintStream(outputFile.get)
+      else Console.out)) {
       for (entry <- retrieveWorklogs())
         printWorklogAsCsv(entry, csvPrintStream, JiraWorklogReporter.DATE_FORMATTER)
     }
@@ -92,8 +92,8 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
 
     val userUrl = connConfig.baseUriWithSlash + s"rest/api/2/user?username=${connConfig.username}"
     val userReq = WS.clientUrl(userUrl)
-                    .withAuth(connConfig.username, connConfig.password, BASIC)
-                    .withHeaders("Content-Type" -> "application/json")
+      .withAuth(connConfig.username, connConfig.password, BASIC)
+      .withHeaders("Content-Type" -> "application/json")
     val userFuture = userReq.get()
     val userResp = Await.result(userFuture, reqTimeout)
     val userResult = userResp.json.validate[User].get
@@ -108,13 +108,13 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
       .mkString(" AND ")
     val maxResults = 1000
     val searchReq = WS.clientUrl(searchUrl)
-                    .withAuth(connConfig.username, connConfig.password, BASIC)
-                    .withHeaders("Content-Type" -> "application/json")
-                    .withQueryString(
-                      "jql" -> jql,
-                      "maxResults" -> s"$maxResults",
-                      "fields" -> "updated,created"
-                    )
+      .withAuth(connConfig.username, connConfig.password, BASIC)
+      .withHeaders("Content-Type" -> "application/json")
+      .withQueryString(
+        "jql" -> jql,
+        "maxResults" -> s"$maxResults",
+        "fields" -> "updated,created"
+      )
 
     def fetchMatchingIssues(startAt: Int, acc: Seq[BasicIssue]): Try[Seq[BasicIssue]] = {
       val searchFuture = searchReq.withQueryString("startAt" -> s"$startAt").get()
@@ -138,7 +138,63 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
     return toWorklogEntries(worklogsMap)
   }
 
+  def updateWorklogHours(issueKey: String, worklogDate: LocalDate, hoursSpent: Double): Unit = {
+    val worklog = Await.result(
+      cacheManager.listWorklogs(connConfig.baseUriWithSlash, issueKey), Duration(30, SECONDS)
+    ).find(w => w.started == worklogDate)
+    updateWorklogHours(issueKey, worklog.get.id, hoursSpent)
+  }
 
+  def updateWorklogHours(issueKey: String, worklogId: String, hoursSpent: Double): Unit = {
+
+    val reqTimeout = Duration(1, MINUTES)
+
+    val updateUrl = connConfig.baseUriWithSlash + s"rest/api/2/issue/$issueKey/worklog/$worklogId"
+    val updateReq = WS.clientUrl(updateUrl)
+      .withAuth(connConfig.username, connConfig.password, BASIC)
+      .withHeaders(
+        "Content-Type" -> "application/json"
+        //      ).withQueryString(
+        //      "_" -> s"${nonce.toEpochSecond}"
+      )
+
+    /*
+        "timeSpent": "5m",
+        "timeSpentSeconds": "300",
+        "author": {
+            "self": "${connConfig.baseUriWithSlash}api/2/user?username=${connConfig.username}"
+        },
+        "updateAuthor": {
+            "self": "${connConfig.baseUriWithSlash}api/2/user?username=${connConfig.username}"
+        },
+        "visibility": {
+            "type": "group",
+            "value": "jira-developers"
+        },
+        "comment": "Testing JIRA...",
+        "id" : "${issueId}"
+     */
+
+    val secondsSpent = Math.round(hoursSpent * 60 * 60).toInt
+    val updateFuture = updateReq.put(
+      s"""
+         |  {
+         |    "timeSpentSeconds": ${secondsSpent}
+         |  }
+      """.stripMargin)
+    val updateResp = Await.result(updateFuture, reqTimeout)
+    logger.debug("The update response JSON: " + updateResp.body)
+    //    logger.debug("The update response JSON: " + updateResp.json)
+    //    updateResp.json.validate[CatsSearchResult] match {
+    //      case JsSuccess(searchResult, path) =>
+    //        val worklogsMap: util.Map[CatsWorklog, BasicIssue] = extractWorklogs(searchResult)
+    //        return toWorklogEntries(worklogsMap)
+    //      case JsError(errors) =>
+    //        for (e <- errors) logger.error(e.toString())
+    //        logger.debug("The body of search response: \n" + updateResp.body)
+    //        throw new RuntimeException("Search Failed!")
+    //    }
+  }
 
   def toWorklogEntries(worklogsMap: util.Map[Worklog, BasicIssue]): Seq[WorklogEntry] = {
     if (worklogsMap.isEmpty)
@@ -212,9 +268,9 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
     val worklogsUrl = s"${connConfig.baseUriWithSlash}rest/api/2/issue/${issue.key}/worklog"
     val reqTimeout = Duration(2, MINUTES)
     val worklogsReq = WS.clientUrl(worklogsUrl)
-                    .withAuth(connConfig.username, connConfig.password, BASIC)
-                    .withHeaders("Content-Type" -> "application/json")
-                    .withQueryString("maxResults" -> "1000")
+      .withAuth(connConfig.username, connConfig.password, BASIC)
+      .withHeaders("Content-Type" -> "application/json")
+      .withQueryString("maxResults" -> "1000")
     val respFuture = worklogsReq.get()
     val resp = Await.result(respFuture, reqTimeout)
 
@@ -222,7 +278,7 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
       case JsSuccess(issueWorklogs, path) =>
         val baseUrl = connConfig.baseUriWithSlash
         val enhancedWorklogs = issueWorklogs.worklogs.map(_.map(w => w.copy(
-            issueKey = Option(issue.key), baseUrl = Option(baseUrl)
+          issueKey = Option(issue.key), baseUrl = Option(baseUrl)
         )))
         val enhancedIssueWorklogs = issueWorklogs.copy(
           baseUrl = Option(baseUrl), issueKey = Option(issue.key), worklogs = enhancedWorklogs
