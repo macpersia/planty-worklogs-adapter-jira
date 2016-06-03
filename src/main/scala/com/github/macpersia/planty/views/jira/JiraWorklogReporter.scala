@@ -2,9 +2,10 @@ package com.github.macpersia.planty.views.jira
 
 import java.io.{File, PrintStream}
 import java.net.URI
+import java.time.LocalTime.NOON
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatter.ofPattern
-import java.time.{LocalDate, ZoneId, ZonedDateTime}
+import java.time._
 import java.util
 import java.util.Collections._
 import java.util._
@@ -194,6 +195,38 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
     //        logger.debug("The body of search response: \n" + updateResp.body)
     //        throw new RuntimeException("Search Failed!")
     //    }
+  }
+
+  def createWorklog(issueKey: String, worklogDate: LocalDate, zone: ZoneId, hoursSpent: Double, comment: String): Unit = {
+    val reqTimeout = Duration(1, MINUTES)
+
+    val createUrl = connConfig.baseUriWithSlash + s"rest/api/2/issue/$issueKey/worklog"
+    val createReq = WS.clientUrl(createUrl)
+      .withAuth(connConfig.username, connConfig.password, BASIC)
+      .withHeaders(
+        "Content-Type" -> "application/json"
+      )
+//    {
+//        "comment": "I did some work here.",
+//        "visibility": {
+//            "type": "group",
+//            "value": "jira-developers"
+//        },
+//        "started": "2016-05-18T12:19:04.126+0000",
+//        "timeSpentSeconds": 12000
+//    }
+    val secondsSpent = Math.round(hoursSpent * 60 * 60).toInt
+    val formattedDate: String = jiraDTFormatter.format(worklogDate.atStartOfDay(zone).plusHours(12))
+    val createFuture = createReq.post(
+      s"""
+         |  {
+         |    "comment": "${comment}",
+         |    "started": "${formattedDate}",
+         |    "timeSpentSeconds": ${secondsSpent}
+         |  }
+      """.stripMargin)
+    val createResp = Await.result(createFuture, reqTimeout)
+    logger.debug("The create response JSON: " + createResp.body)
   }
 
   def toWorklogEntries(worklogsMap: util.Map[Worklog, BasicIssue]): Seq[WorklogEntry] = {
