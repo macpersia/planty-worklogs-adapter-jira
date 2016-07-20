@@ -48,7 +48,18 @@ object App extends LazyLogging {
           params.author, params.fromDate, params.toDate, params.timeZone, params.jiraQuery)
 
         for (reporter <- managed(new JiraWorklogReporter(connConfig, filter)(global))) {
-          reporter.printWorklogsAsCsv(params.outputFile)
+
+//          reporter.printWorklogsAsCsv(params.outputFile)
+
+          val date = LocalDate.of(2016, 5, 24)
+          val issueKey = "BICM-3201"
+          val worklogId = 75460
+          //val issueKey = "PPS-40221"
+          //val worklogId = 98222
+          val hoursSpent = .75
+          //reporter.updateWorklogHours(issueKey, worklogId, hoursSpent )
+          reporter.updateWorklogHours(issueKey, date, hoursSpent)
+
           sys.exit(0)
         }
       }

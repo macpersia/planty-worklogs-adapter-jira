@@ -139,14 +139,14 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
     return toWorklogEntries(worklogsMap)
   }
 
-  def updateWorklogHours(issueKey: String, worklogDate: LocalDate, hoursSpent: Double): Unit = {
+  def updateWorklogHours(issueKey: String, worklogDate: LocalDate, hoursSpent: Double): Int = {
     val worklog = Await.result(
       cacheManager.listWorklogs(connConfig.baseUriWithSlash, issueKey), Duration(30, SECONDS)
     ).find(w => w.started == worklogDate)
     updateWorklogHours(issueKey, worklog.get.id, hoursSpent)
   }
 
-  def updateWorklogHours(issueKey: String, worklogId: String, hoursSpent: Double): Unit = {
+  def updateWorklogHours(issueKey: String, worklogId: String, hoursSpent: Double): Int = {
 
     val reqTimeout = Duration(1, MINUTES)
 
@@ -195,9 +195,10 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
     //        logger.debug("The body of search response: \n" + updateResp.body)
     //        throw new RuntimeException("Search Failed!")
     //    }
+    updateResp.status
   }
 
-  def createWorklog(issueKey: String, worklogDate: LocalDate, zone: ZoneId, hoursSpent: Double, comment: String): Unit = {
+  def createWorklog(issueKey: String, worklogDate: LocalDate, zone: ZoneId, hoursSpent: Double, comment: String): Int = {
     val reqTimeout = Duration(1, MINUTES)
 
     val createUrl = connConfig.baseUriWithSlash + s"rest/api/2/issue/$issueKey/worklog"
@@ -227,6 +228,7 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
       """.stripMargin)
     val createResp = Await.result(createFuture, reqTimeout)
     logger.debug("The create response JSON: " + createResp.body)
+    createResp.status
   }
 
   def toWorklogEntries(worklogsMap: util.Map[Worklog, BasicIssue]): Seq[WorklogEntry] = {
