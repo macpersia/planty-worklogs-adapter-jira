@@ -1,4 +1,4 @@
-name := "planty-jira-view"
+name := "planty-worklogs-adapter-jira"
 
 version := "1.0-SNAPSHOT"
 
