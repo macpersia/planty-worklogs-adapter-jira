@@ -92,50 +92,52 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
     val reqTimeout = Duration(1, MINUTES)
 
     val userUrl = connConfig.baseUriWithSlash + s"rest/api/2/user?username=${connConfig.username}"
-    val userReq = WS.clientUrl(userUrl)
-      .withAuth(connConfig.username, connConfig.password, BASIC)
-      .withHeaders("Content-Type" -> "application/json")
-    val userFuture = userReq.get()
-    val userResp = Await.result(userFuture, reqTimeout)
-    val userResult = userResp.json.validate[User].get
-    logger.debug("Current user's time zone: " + ZoneId.of(userResult.timeZone.get))
+//    val userReq = WS.clientUrl(userUrl)
+//      .withAuth(connConfig.username, connConfig.password, BASIC)
+//      .withHeaders("Content-Type" -> "application/json")
+//    val userFuture = userReq.get()
+//    val userResp = Await.result(userFuture, reqTimeout)
+//    val userResult = userResp.json.validate[User].get
+//    logger.debug("Current user's time zone: " + ZoneId.of(userResult.timeZone.get))
+//
+//    val dateTimeFormatter: DateTimeFormatter = ofPattern("yyyy-MM-dd")
+//    val fromDateFormatted: String = dateTimeFormatter.format(filter.fromDate)
+//    val toDateFormatted: String = dateTimeFormatter.format(filter.toDate)
+//
+//    val searchUrl = connConfig.baseUriWithSlash + "rest/api/2/search"
+//    val jql: String = Seq(filter.jiraQuery, s"updated>=$fromDateFormatted AND created<=$toDateFormatted")
+//      .mkString(" AND ")
+//    val maxResults = 1000
+//    val searchReq = WS.clientUrl(searchUrl)
+//      .withAuth(connConfig.username, connConfig.password, BASIC)
+//      .withHeaders("Content-Type" -> "application/json")
+//      .withQueryString(
+//        "jql" -> jql,
+//        "maxResults" -> s"$maxResults",
+//        "fields" -> "updated,created"
+//      )
+//    def fetchMatchingIssues(startAt: Int, acc: Seq[BasicIssue]): Try[Seq[BasicIssue]] = {
+//      val searchFuture = searchReq.withQueryString("startAt" -> s"$startAt").get()
+//      val searchResp = Await.result(searchFuture, reqTimeout)
+//      searchResp.json.validate[SearchResult] match {
+//        case JsSuccess(result, path) =>
+//          val issues: Seq[BasicIssue] = acc ++ result.issues
+//          if (issues.size < result.total)
+//            return fetchMatchingIssues(startAt = issues.size, acc = issues)
+//          else
+//            return Success(issues)
+//
+//        case JsError(errors) =>
+//          for (e <- errors) logger.error(e.toString())
+//          logger.debug("The body of search response: \n" + searchResp.body)
+//          return Failure(new RuntimeException("Search Failed!"))
+//      }
+//    }
+//    val issues = fetchMatchingIssues(startAt = 0, acc = Nil).get
 
-    val dateTimeFormatter: DateTimeFormatter = ofPattern("yyyy-MM-dd")
-    val fromDateFormatted: String = dateTimeFormatter.format(filter.fromDate)
-    val toDateFormatted: String = dateTimeFormatter.format(filter.toDate)
-
-    val searchUrl = connConfig.baseUriWithSlash + "rest/api/2/search"
-    val jql: String = Seq(filter.jiraQuery, s"updated>=$fromDateFormatted AND created<=$toDateFormatted")
-      .mkString(" AND ")
-    val maxResults = 1000
-    val searchReq = WS.clientUrl(searchUrl)
-      .withAuth(connConfig.username, connConfig.password, BASIC)
-      .withHeaders("Content-Type" -> "application/json")
-      .withQueryString(
-        "jql" -> jql,
-        "maxResults" -> s"$maxResults",
-        "fields" -> "updated,created"
-      )
-
-    def fetchMatchingIssues(startAt: Int, acc: Seq[BasicIssue]): Try[Seq[BasicIssue]] = {
-      val searchFuture = searchReq.withQueryString("startAt" -> s"$startAt").get()
-      val searchResp = Await.result(searchFuture, reqTimeout)
-      searchResp.json.validate[SearchResult] match {
-        case JsSuccess(result, path) =>
-          val issues: Seq[BasicIssue] = acc ++ result.issues
-          if (issues.size < result.total)
-            return fetchMatchingIssues(startAt = issues.size, acc = issues)
-          else
-            return Success(issues)
-
-        case JsError(errors) =>
-          for (e <- errors) logger.error(e.toString())
-          logger.debug("The body of search response: \n" + searchResp.body)
-          return Failure(new RuntimeException("Search Failed!"))
-      }
-    }
-    val issues = fetchMatchingIssues(startAt = 0, acc = Nil).get
+    val issues = Nil
     val worklogsMap: util.Map[Worklog, BasicIssue] = extractWorklogs(issues, latestIssueTs)
+
     return toWorklogEntries(worklogsMap)
   }
 

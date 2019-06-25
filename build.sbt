@@ -2,7 +2,7 @@ name := "planty-worklogs-adapter-jira"
 
 version := "1.0-SNAPSHOT"
 
-scalaVersion := "2.11.6"
+scalaVersion := "2.11.8"
 
 libraryDependencies ++= Seq(
   "default" %% "planty-worklogs-common" % "1.0-SNAPSHOT",
