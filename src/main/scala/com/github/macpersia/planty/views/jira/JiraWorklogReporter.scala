@@ -6,6 +6,7 @@ import java.time.LocalTime.NOON
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatter.ofPattern
 import java.time._
+import java.time.temporal.{ChronoUnit, TemporalUnit}
 import java.util
 import java.util.Collections._
 import java.util._
@@ -82,16 +83,16 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
 
   override def retrieveWorklogs(): Seq[WorklogEntry] = {
 
-    val latestIssueTs = Await.result(
-      cacheManager.latestIssueTimestamp(connConfig.baseUriWithSlash),
-      Duration(10, SECONDS))
-    logger.debug(s"Previous timestamp for updates: $latestIssueTs")
-
-    logger.debug(s"Searching the JIRA at ${connConfig.baseUriWithSlash} as ${connConfig.username}")
-
-    val reqTimeout = Duration(1, MINUTES)
-
-    val userUrl = connConfig.baseUriWithSlash + s"rest/api/2/user?username=${connConfig.username}"
+//    val latestIssueTs = Await.result(
+//      cacheManager.latestIssueTimestamp(connConfig.baseUriWithSlash),
+//      Duration(10, SECONDS))
+//    logger.debug(s"Previous timestamp for updates: $latestIssueTs")
+//
+//    logger.debug(s"Searching the JIRA at ${connConfig.baseUriWithSlash} as ${connConfig.username}")
+//
+//    val reqTimeout = Duration(1, MINUTES)
+//
+//    val userUrl = connConfig.baseUriWithSlash + s"rest/api/2/user?username=${connConfig.username}"
 //    val userReq = WS.clientUrl(userUrl)
 //      .withAuth(connConfig.username, connConfig.password, BASIC)
 //      .withHeaders("Content-Type" -> "application/json")
@@ -134,9 +135,11 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
 //      }
 //    }
 //    val issues = fetchMatchingIssues(startAt = 0, acc = Nil).get
+//    val worklogsMap: util.Map[Worklog, BasicIssue] = extractWorklogs(issues, Option(latestIssueTs))
 
-    val issues = Nil
-    val worklogsMap: util.Map[Worklog, BasicIssue] = extractWorklogs(issues, latestIssueTs)
+    // TODO: This is a temporary replacement for the integration above, for demo purposes
+    val issues = Await.result(cacheManager.listIssues(connConfig.baseUriWithSlash), Duration(10, SECONDS))
+    val worklogsMap: util.Map[Worklog, BasicIssue] = extractWorklogs(issues.toList, Option.empty)
 
     return toWorklogEntries(worklogsMap)
   }
@@ -270,7 +273,10 @@ class JiraWorklogReporter(connConfig: ConnectionConfig, filter: JiraWorklogFilte
         Duration(30, SECONDS)
       )
       val allWorklogs =
-        if (prevSyncTimestamp.isEmpty || cachedIssue.isEmpty || (issue.updated isAfter cachedIssue.get.updated)) {
+        if (
+          // TODO: This is a temporary deactivation for the condition below, for demo purposes
+          false &&
+          prevSyncTimestamp.isEmpty || cachedIssue.isEmpty || (issue.updated isAfter cachedIssue.get.updated)) {
           //val issueUrl = connConfig.baseUri.toString + s"/rest/api/2/issue/${issue.key}"
           //logger.debug(s"Retrieving issue ${issue.key} at $issueUrl")
           //

@@ -149,10 +149,6 @@ class CacheManager private (implicit execContext: ExecutionContext) {
     issueWorklogsColl.update(issueWorklogsSelector(iw), iw, upsert = true)
   }
 
-//  def listIssues(): Future[Seq[BasicIssue]] = {
-//    issuesColl.find(BSONDocument()).cursor[BasicIssue].collect[Seq]()
-//  }
-
   def getIssueByBaseUrlAndId(baseUrl: String, id: String) = {
     // issuesColl.find(BSONDocument("id" -> BSONDocument("$eq" -> id))).one[BasicIssue]
     issuesColl.find(issueSelector(baseUrl, id)).one[BasicIssue]
@@ -190,6 +186,12 @@ class CacheManager private (implicit execContext: ExecutionContext) {
       case None => ParSeq.empty
     }
     worklogs
+  }
+
+  def listIssues(baseUrl: String): Future[ParSeq[BasicIssue]] = {
+    issuesColl
+      .find(BSONDocument("baseUrl" -> BSONDocument("$in" -> BSONArray(baseUrl))))
+      .cursor[BasicIssue].collect[ParSeq]()
   }
 
   def latestIssueTimestamp(baseUrl: String): Future[Option[ZonedDateTime]] = {
