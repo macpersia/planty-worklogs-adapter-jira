@@ -1,11 +1,13 @@
 name := "planty-worklogs-adapter-jira"
 
-version := "1.0-SNAPSHOT"
+organization := "planty.be"
+
+version := "1.1-SNAPSHOT"
 
 scalaVersion := "2.11.8"
 
 libraryDependencies ++= Seq(
-  "default" %% "planty-worklogs-common" % "1.0-SNAPSHOT",
+  "planty.be" %% "planty-worklogs-common" % "1.0-SNAPSHOT",
   "com.typesafe.scala-logging" %% "scala-logging" % "3.1.0",
   "ch.qos.logback" % "logback-classic" % "1.1.3",
   //   "net.sf.jopt-simple" % "jopt-simple" % "4.9",
